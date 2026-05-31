@@ -36,6 +36,8 @@ var result_title := ""
 var result_message := ""
 var last_score := 0
 var voyage_started := false
+var evento_activo: Dictionary = {}
+var evento_resuelto_este_turno := false
 
 
 func _ready() -> void:
@@ -75,6 +77,8 @@ func reset_game() -> void:
 	result_message = ""
 	last_score = 0
 	voyage_started = false
+	evento_activo = {}
+	evento_resuelto_este_turno = false
 	add_log("Amaru prepara una nueva expedicion en el astillero de Manta.")
 	_emit_all()
 
@@ -189,6 +193,8 @@ func start_voyage() -> void:
 	voyage_started = true
 	deck = CardDatabase.build_deck()
 	hand = []
+	evento_activo = {}
+	evento_resuelto_este_turno = false
 	add_log("La balsa zarpa hacia la Ruta del Spondylus.")
 	start_voyage_turn()
 
@@ -197,12 +203,16 @@ func start_voyage_turn() -> void:
 	if game_over or victory:
 		return
 	turn += 1
+	evento_resuelto_este_turno = false
 	if resources["suministros"] > 0:
 		resources["suministros"] -= 1
 		add_log("Turno %d: la tripulacion consume 1 suministro." % turn)
 	else:
 		damage_ship(2, "La falta de suministros enferma a la tripulacion.")
-	hand = CardDatabase.draw_cards(deck, 3)
+	if evento_activo.is_empty() and randf() <= EventSystem.EVENT_CHANCE:
+		evento_activo = EventSystem.get_random_event()
+		add_log("Evento activo: %s. Se resuelve con %s." % [evento_activo["nombre"], ", ".join(evento_activo["evento_compatible"])])
+	hand = CardDatabase.draw_cards(deck, 3, evento_activo)
 	add_log("Robas 3 cartas de evento.")
 	_emit_all()
 
@@ -215,7 +225,14 @@ func play_card(card_id: String) -> void:
 		return
 	hand.erase(card)
 	add_log("Carta jugada: %s." % card["title"])
+	if EventSystem.resolve_event(evento_activo, card):
+		evento_resuelto_este_turno = true
+		add_log("El evento %s queda resuelto." % evento_activo["nombre"])
 	_apply_card_effect(card_id)
+	if game_over or victory:
+		_emit_all()
+		return
+	_close_active_event()
 	if game_over or victory:
 		_emit_all()
 		return
@@ -229,6 +246,30 @@ func play_card(card_id: String) -> void:
 	else:
 		start_voyage_turn()
 	_emit_all()
+
+
+func active_crew_count() -> int:
+	var count := 0
+	for key in crew.keys():
+		if crew[key]:
+			count += 1
+	return count
+
+
+func active_crew_labels() -> Array[String]:
+	var labels: Array[String] = []
+	for key in crew.keys():
+		if crew[key]:
+			labels.append(str(key).capitalize().replace("_", " "))
+	return labels
+
+
+func active_improvement_labels() -> Array[String]:
+	var labels: Array[String] = []
+	for key in improvements.keys():
+		if improvements[key]:
+			labels.append(str(key).capitalize().replace("_", " "))
+	return labels
 
 
 func damage_ship(amount: int, reason: String) -> void:
@@ -282,6 +323,17 @@ func add_log(message: String) -> void:
 	if logs.size() > 12:
 		logs.pop_front()
 	log_changed.emit()
+
+
+func _close_active_event() -> void:
+	if evento_activo.is_empty():
+		return
+	if evento_resuelto_este_turno:
+		evento_activo = {}
+		return
+	add_log("No resolviste %s. Se aplica la penalizacion." % evento_activo["nombre"])
+	EventSystem.apply_penalty(evento_activo)
+	evento_activo = {}
 
 
 func latest_logs_text() -> String:
