@@ -8,6 +8,8 @@ var resources_box: HBoxContainer
 var event_banner: Label
 var progress_bar: ProgressBar
 var status_label: Label
+var preparation_label: Label
+var choices_box: VBoxContainer
 var log_label: Label
 var hand_box: HBoxContainer
 var customize_summary: Label
@@ -69,9 +71,9 @@ func _build_ui() -> void:
 	event_banner = Label.new()
 	event_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	event_banner.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	event_banner.add_theme_font_size_override("font_size", 16)
+	event_banner.add_theme_font_size_override("font_size", 15)
 	event_banner.add_theme_color_override("font_color", Color("#fff8e8"))
-	center.add_child(_panel(event_banner, Color("#6b3a2a")))
+	center.add_child(_panel(event_banner, Color("#6b3a2a"), false))
 
 	var ocean := PanelContainer.new()
 	ocean.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -89,7 +91,7 @@ func _build_ui() -> void:
 	var ship := Label.new()
 	ship.text = "      /|\\\n+====/ | \\====+\n\\___ Navegantes ___/"
 	ship.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ship.add_theme_font_size_override("font_size", 28)
+	ship.add_theme_font_size_override("font_size", 24)
 	ship.add_theme_color_override("font_color", Color("#fff8e8"))
 	ocean_box.add_child(ship)
 
@@ -111,12 +113,16 @@ func _build_ui() -> void:
 	status_label.add_theme_color_override("font_color", Color("#fff8e8"))
 	actions.add_child(status_label)
 
-	var sail_button := Button.new()
-	sail_button.text = "Zarpar"
-	sail_button.disabled = true
-	sail_button.custom_minimum_size = Vector2(0, 48)
-	sail_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	actions.add_child(sail_button)
+	preparation_label = Label.new()
+	preparation_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	preparation_label.add_theme_font_size_override("font_size", 15)
+	preparation_label.add_theme_color_override("font_color", Color("#f0d88a"))
+	actions.add_child(preparation_label)
+
+	choices_box = VBoxContainer.new()
+	choices_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	choices_box.add_theme_constant_override("separation", 8)
+	actions.add_child(choices_box)
 
 	var customize_button := Button.new()
 	customize_button.text = "Personalizar balsa"
@@ -132,16 +138,23 @@ func _build_ui() -> void:
 	customize_summary.add_theme_color_override("font_color", Color("#f0d88a"))
 	actions.add_child(customize_summary)
 
+	var log_scroll := ScrollContainer.new()
+	log_scroll.custom_minimum_size = Vector2(0, 96)
+	log_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	log_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	actions.add_child(log_scroll)
+
 	log_label = Label.new()
 	log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	log_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	log_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	log_label.add_theme_font_size_override("font_size", 13)
 	log_label.add_theme_color_override("font_color", Color("#d7e8e4"))
-	actions.add_child(log_label)
+	log_scroll.add_child(log_label)
 
 	var hand_panel := PanelContainer.new()
-	hand_panel.custom_minimum_size = Vector2(0, 285)
+	hand_panel.custom_minimum_size = Vector2(0, 210)
 	hand_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hand_panel.size_flags_vertical = Control.SIZE_SHRINK_END
 	hand_panel.add_theme_stylebox_override("panel", _style(Color("#102f3f"), Color("#f0a500")))
 	root.add_child(hand_panel)
 
@@ -170,6 +183,7 @@ func _refresh() -> void:
 	_refresh_resources()
 	_refresh_event()
 	_refresh_actions()
+	_refresh_choices()
 	_refresh_hand()
 
 
@@ -192,25 +206,58 @@ func _refresh_resources() -> void:
 
 
 func _refresh_event() -> void:
-	if GameState.evento_activo.is_empty():
+	if GameState.active_event.is_empty():
 		event_banner.text = "Mar abierto: sin evento activo"
 		last_alert_event = ""
 		return
-	event_banner.text = "%s %s - resuelve con %s" % [
-		GameState.evento_activo.get("icono", "!"),
-		GameState.evento_activo["nombre"],
-		", ".join(GameState.evento_activo.get("evento_compatible", [])),
+	event_banner.text = "%s %s | %s | Dificultad %d | Tags: %s" % [
+		GameState.active_event.get("icono", "!"),
+		GameState.active_event["nombre"],
+		str(GameState.active_event.get("tipo", "evento")).capitalize(),
+		int(GameState.active_event.get("dificultad", 1)),
+		", ".join(GameState.active_event.get("tags", [])),
 	]
-	if last_alert_event != GameState.evento_activo["nombre"]:
-		last_alert_event = GameState.evento_activo["nombre"]
-		alert.show_event(GameState.evento_activo)
+	if last_alert_event != GameState.active_event["nombre"]:
+		last_alert_event = GameState.active_event["nombre"]
+		alert.show_event(GameState.active_event)
 
 
 func _refresh_actions() -> void:
-	status_label.text = "Elige una carta.\n%s" % ("Evento activo" if not GameState.evento_activo.is_empty() else "Turno de travesia")
+	if GameState.event_phase == "decision":
+		status_label.text = "Decision final\nElige una respuesta para cerrar el encuentro."
+	else:
+		status_label.text = "Preparacion\nJuega cartas antes de decidir."
+	preparation_label.text = "Cartas usadas: %d/%d\nPreparacion total: %d\n%s" % [
+		GameState.preparation_cards_played,
+		GameState.max_preparation_cards,
+		GameState.event_preparation_score,
+		_format_scores(GameState.event_preparation_scores),
+	]
 	var improvements := GameState.active_improvement_labels()
 	customize_summary.text = "Mejoras activas: %s" % ("Ninguna" if improvements.is_empty() else ", ".join(improvements))
 	log_label.text = GameState.latest_logs_text()
+
+
+func _refresh_choices() -> void:
+	_clear(choices_box)
+	if GameState.event_phase != "decision":
+		var hint := Label.new()
+		hint.text = "Las opciones apareceran tras preparar el encuentro."
+		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		hint.add_theme_color_override("font_color", Color("#d7e8e4"))
+		choices_box.add_child(hint)
+		return
+	for choice in GameState.event_choices:
+		var score: int = EventSystem.choice_score(GameState.active_event, GameState.event_preparation_scores, choice)
+		var difficulty: int = int(GameState.active_event.get("dificultad", 1))
+		var button := Button.new()
+		button.text = "%s (%s %d/%d)" % [choice["texto"], str(choice.get("tag", "riesgo")), score, difficulty]
+		button.custom_minimum_size = Vector2(0, 46)
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.pressed.connect(func() -> void:
+			GameState.resolve_event_choice(choice["id"])
+		)
+		choices_box.add_child(button)
 
 
 func _refresh_hand() -> void:
@@ -219,13 +266,13 @@ func _refresh_hand() -> void:
 	for card in GameState.hand:
 		var card_ui := CARD_UI.instantiate()
 		hand_box.add_child(card_ui)
-		card_ui.setup(card, GameState.evento_activo)
+		card_ui.setup(card, GameState.active_event)
 		card_ui.card_selected.connect(_on_card_selected)
 		card_ui.card_expanded.connect(_on_card_expanded)
 
 
 func _on_card_selected(card_id: String) -> void:
-	GameState.play_card(card_id)
+	GameState.play_preparation_card(card_id)
 
 
 func _on_card_expanded(card_ui) -> void:
@@ -251,13 +298,13 @@ func _resource_tile(label_text: String, value: int, max_value: int) -> Control:
 	value_label.add_theme_font_size_override("font_size", 22)
 	value_label.add_theme_color_override("font_color", Color("#ff7070") if value <= 2 else Color("#fff8e8"))
 	tile.add_child(value_label)
-	return _panel(tile, Color("#12384a"))
+	return _panel(tile, Color("#12384a"), false)
 
 
-func _panel(child: Control, color := Color("#12384a")) -> PanelContainer:
+func _panel(child: Control, color := Color("#12384a"), expand_vertical := true) -> PanelContainer:
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL if expand_vertical else Control.SIZE_SHRINK_BEGIN
 	panel.add_theme_stylebox_override("panel", _style(color, Color("#315d6a")))
 	panel.add_child(child)
 	return panel
@@ -304,3 +351,12 @@ func _clear(node: Node) -> void:
 	for child in node.get_children():
 		node.remove_child(child)
 		child.queue_free()
+
+
+func _format_scores(scores: Dictionary) -> String:
+	if scores.is_empty():
+		return "Sin preparacion por tag."
+	var parts: Array[String] = []
+	for key in scores.keys():
+		parts.append("%s +%d" % [str(key), int(scores[key])])
+	return ", ".join(parts)

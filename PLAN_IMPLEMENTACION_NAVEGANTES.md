@@ -84,12 +84,25 @@ Construir una version jugable de 5 a 8 minutos con inicio narrativo, preparacion
 - [ ] Exportar build HTML5.
 - [ ] Subir a itch.io.
 
+### Fase 9 - Roguelite de travesia
+
+- [x] Convertir cada turno en encuentro obligatorio.
+- [x] Separar la travesia en preparacion con cartas y decision final.
+- [x] Agregar enemigos simples: piratas, tiburones, motin y amenazas del mar.
+- [x] Convertir las cartas existentes en preparacion por tags.
+- [x] Agregar recompensas y penalizaciones por exito/fallo del encuentro.
+- [x] Agregar legado ganado al final de cada expedicion.
+- [x] Agregar mejoras permanentes del astillero con puntos de legado.
+- [x] Mostrar fase, preparacion, decisiones y legado en UI mobile landscape.
+
 ## MVP incluido
 
 - Inicio narrativo.
 - Astillero funcional.
 - Travesia jugable completa.
 - 40 cartas con efectos simplificados.
+- Encuentros roguelite con preparacion y decision.
+- Progresion permanente ligera del astillero.
 - Resultados y game over.
 - UI provisional responsive.
 
@@ -111,6 +124,12 @@ Construir una version jugable de 5 a 8 minutos con inicio narrativo, preparacion
 - [ ] Travesia hasta victoria.
 - [ ] Travesia hasta game over por balsa.
 - [ ] Penalizacion por hambre.
+- [ ] Evento muestra fase de preparacion antes de decidir.
+- [ ] Cartas suman preparacion y no cierran el turno directamente.
+- [ ] Decision de evento aplica recompensa con exito y penalizacion con fallo.
+- [ ] Enemigos de piratas/tiburones tienen decision final clara.
+- [ ] Legado ganado se conserva al reintentar desde resultados.
+- [ ] Mejoras permanentes del astillero aplican bonos en la siguiente expedicion.
 - [ ] Reintento desde resultados.
 - [ ] Revision visual en 1280x720.
 - [ ] Revision visual mobile.

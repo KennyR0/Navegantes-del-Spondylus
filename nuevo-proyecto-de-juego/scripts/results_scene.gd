@@ -63,6 +63,18 @@ func _build_ui() -> void:
 	score.add_theme_color_override("font_color", Color("#f5f0e8"))
 	panel.add_child(score)
 
+	var legacy := Label.new()
+	legacy.text = "Legado ganado: %d\nLegado disponible: %d\nNivel del astillero: %d" % [
+		GameState.last_legacy_earned,
+		GameState.legacy_points,
+		GameState.shipyard_level,
+	]
+	legacy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	legacy.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	legacy.add_theme_font_size_override("font_size", 21)
+	legacy.add_theme_color_override("font_color", Color("#f0d88a"))
+	panel.add_child(legacy)
+
 	var retry := Button.new()
 	retry.text = "Intentar otra expedicion"
 	retry.custom_minimum_size = Vector2(280, 56)

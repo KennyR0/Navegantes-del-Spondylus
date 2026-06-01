@@ -21,7 +21,7 @@ func show_event(event: Dictionary) -> void:
 		return
 	name_label.text = "%s %s" % [current_event.get("icono", "!"), current_event["nombre"]]
 	desc_label.text = current_event["descripcion"]
-	hint_label.text = "Juega una carta de %s para resolverlo." % ", ".join(current_event.get("evento_compatible", []))
+	hint_label.text = "Prepara con cartas de %s. Dificultad: %d." % [", ".join(current_event.get("tags", [])), int(current_event.get("dificultad", 1))]
 	visible = true
 	modulate.a = 1.0
 	var tween := create_tween()

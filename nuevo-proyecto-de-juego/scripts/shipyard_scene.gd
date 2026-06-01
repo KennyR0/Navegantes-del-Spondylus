@@ -2,7 +2,9 @@ extends Control
 
 var status_label: Label
 var message_label: Label
+var legacy_label: Label
 var options_box: VBoxContainer
+var legacy_box: VBoxContainer
 var sail_button: Button
 
 
@@ -49,15 +51,31 @@ func _build_ui() -> void:
 	message_label.add_theme_color_override("font_color", Color("#2ebfa5"))
 	root.add_child(message_label)
 
+	legacy_label = Label.new()
+	legacy_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	legacy_label.add_theme_color_override("font_color", Color("#f0d88a"))
+	root.add_child(legacy_label)
+
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(scroll)
 
+	var columns := HBoxContainer.new()
+	columns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	columns.add_theme_constant_override("separation", 12)
+	scroll.add_child(columns)
+
 	options_box = VBoxContainer.new()
 	options_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	options_box.add_theme_constant_override("separation", 10)
-	scroll.add_child(options_box)
+	columns.add_child(options_box)
+
+	legacy_box = VBoxContainer.new()
+	legacy_box.custom_minimum_size = Vector2(310, 0)
+	legacy_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	legacy_box.add_theme_constant_override("separation", 10)
+	columns.add_child(legacy_box)
 
 	sail_button = Button.new()
 	sail_button.text = "Zarpar hacia la Ruta del Spondylus"
@@ -77,8 +95,16 @@ func _refresh() -> void:
 		GameState.max_ship_integrity,
 		GameState.reputation,
 	]
+	var permanent := GameState.permanent_upgrade_labels()
+	legacy_label.text = "Astillero nivel %d | Legado disponible: %d | Mejoras permanentes: %s" % [
+		GameState.shipyard_level,
+		GameState.legacy_points,
+		"Ninguna" if permanent.is_empty() else ", ".join(permanent),
+	]
 	sail_button.text = "Zarpar hacia la Ruta del Spondylus (%d acciones restantes)" % GameState.actions_remaining
 	for child in options_box.get_children():
+		child.queue_free()
+	for child in legacy_box.get_children():
 		child.queue_free()
 	var current_group := ""
 	for option in GameState.get_shipyard_options():
@@ -90,6 +116,7 @@ func _refresh() -> void:
 			heading.add_theme_color_override("font_color", Color("#f0a500"))
 			options_box.add_child(heading)
 		options_box.add_child(_make_option_row(option))
+	_refresh_legacy_upgrades()
 
 
 func _make_option_row(option: Dictionary) -> Control:
@@ -126,6 +153,56 @@ func _make_option_row(option: Dictionary) -> Control:
 	button.disabled = GameState.actions_remaining <= 0 or GameState._is_unique_option_taken(option["id"]) or not _can_afford(option["cost"])
 	button.pressed.connect(func() -> void:
 		message_label.text = GameState.apply_shipyard_option(option["id"])
+		_refresh()
+	)
+	box.add_child(button)
+	return row
+
+
+func _refresh_legacy_upgrades() -> void:
+	var heading := Label.new()
+	heading.text = "Mejoras de Legado"
+	heading.add_theme_font_size_override("font_size", 24)
+	heading.add_theme_color_override("font_color", Color("#f0a500"))
+	legacy_box.add_child(heading)
+	for upgrade in GameState.get_permanent_upgrade_options():
+		legacy_box.add_child(_make_legacy_row(upgrade))
+
+
+func _make_legacy_row(upgrade: Dictionary) -> Control:
+	var row := PanelContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("#12384a")
+	style.border_color = Color("#2ebfa5") if GameState.permanent_upgrades.get(upgrade["id"], false) else Color("#315d6a")
+	style.border_width_left = 2
+	style.border_width_top = 2
+	style.border_width_right = 2
+	style.border_width_bottom = 2
+	style.corner_radius_top_left = 8
+	style.corner_radius_top_right = 8
+	style.corner_radius_bottom_left = 8
+	style.corner_radius_bottom_right = 8
+	row.add_theme_stylebox_override("panel", style)
+
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 6)
+	row.add_child(box)
+
+	var label := Label.new()
+	label.text = "%s\n%s\nCosto de legado: %d" % [upgrade["title"], upgrade["desc"], upgrade["cost"]]
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_color_override("font_color", Color("#f5f0e8"))
+	box.add_child(label)
+
+	var button := Button.new()
+	button.text = "Desbloqueada" if GameState.permanent_upgrades.get(upgrade["id"], false) else "Invertir legado"
+	button.custom_minimum_size = Vector2(0, 42)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.disabled = GameState.permanent_upgrades.get(upgrade["id"], false) or GameState.legacy_points < int(upgrade["cost"])
+	button.pressed.connect(func() -> void:
+		message_label.text = GameState.buy_permanent_upgrade(upgrade["id"])
 		_refresh()
 	)
 	box.add_child(button)

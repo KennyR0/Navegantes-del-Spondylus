@@ -69,8 +69,9 @@ func get_category_color(category: String) -> Color:
 func card_resolves_event(card: Dictionary, active_event: Dictionary) -> bool:
 	if active_event.is_empty() or card.is_empty():
 		return false
-	var needed: Array = active_event.get("evento_compatible", [])
-	for tag in card.get("evento_compatible", []):
+	var needed: Array = active_event.get("tags", active_event.get("evento_compatible", []))
+	var preparation: Dictionary = card.get("preparacion", {})
+	for tag in preparation.keys():
 		if needed.has(tag):
 			return true
 	return false
@@ -85,6 +86,20 @@ func _filter_event_compatible(pool: Array, active_event: Dictionary) -> Array:
 
 
 func _card(id: String, title: String, category: String, text: String, peso: int, compatible: Array[String]) -> Dictionary:
+	var preparation := {}
+	for tag in compatible:
+		preparation[tag] = 2
+	match category:
+		"clima":
+			preparation["navegacion"] = int(preparation.get("navegacion", 0)) + 1
+		"fauna":
+			preparation["pesca"] = int(preparation.get("pesca", 0)) + 1
+		"cultura":
+			preparation["comercio"] = int(preparation.get("comercio", 0)) + 1
+		"astillero":
+			preparation["resistencia"] = int(preparation.get("resistencia", 0)) + 1
+		"sagrada":
+			preparation["espiritualidad"] = int(preparation.get("espiritualidad", 0)) + 1
 	return {
 		"id": id,
 		"title": title,
@@ -92,6 +107,7 @@ func _card(id: String, title: String, category: String, text: String, peso: int,
 		"text": text,
 		"peso": peso,
 		"evento_compatible": compatible,
+		"preparacion": preparation,
 	}
 
 
