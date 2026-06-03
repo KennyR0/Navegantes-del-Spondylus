@@ -7,14 +7,30 @@ const DAILY_CASTS := 5
 const PLACEHOLDER_INGREDIENTS_PER_DAY := 2
 const PERFECT_WINDOW_SECONDS := 0.45
 const GOOD_WINDOW_SECONDS := 0.60
+const LURE_BREATH_SECONDS := 0.58
+const FISHING_REDRAW_SECONDS := 0.08
 const CUSTOMER_PATIENCE_SECONDS := 22.0
+const WATER_SURFACE_TOP := 0.615
+const BOAT_ANCHOR := Vector2(0.46, 0.72)
+const FISHERMAN_ANCHOR := Vector2(0.458, 0.665)
+const ROD_BUTT_ANCHOR := Vector2(0.472, 0.705)
+const ROD_TIP_IDLE := Vector2(0.515, 0.686)
+const ROD_TIP_CAST := Vector2(0.565, 0.662)
+const LURE_SURFACE_ANCHOR := Vector2(0.60, 0.665)
+const FISH_ANCHOR := Vector2(0.66, 0.66)
 
 const WATER_TEXTURE := preload("res://assets/craftpix/3 Objects/Water.png")
 const HUT_TEXTURE := preload("res://assets/craftpix/3 Objects/Fishing_hut.png")
 const BOAT_TEXTURE := preload("res://assets/craftpix/3 Objects/Boat.png")
-const FISH_NORMAL_TEXTURE := preload("res://assets/craftpix/3 Objects/Catch/2.png")
-const FISH_PREMIUM_TEXTURE := preload("res://assets/craftpix/3 Objects/Catch/6.png")
-const ROD_TEXTURE := preload("res://assets/craftpix/3 Objects/Fish-rod.png")
+const FISHING_SEASCAPE_TEXTURE := preload("res://assets/pixelart/fishing_seascape_pixel.png")
+const FISH_NORMAL_TEXTURE := preload("res://assets/pixelart/fish_normal_pixel.png")
+const FISH_PREMIUM_TEXTURE := preload("res://assets/pixelart/fish_premium_pixel.png")
+const LURE_TEXTURE := preload("res://assets/pixelart/lure_bobber.png")
+const LURE_SINK_TEXTURE := preload("res://assets/pixelart/lure_sink.png")
+const BITE_SPLASH_TEXTURE := preload("res://assets/pixelart/bite_splash.png")
+const FISHERMAN_IDLE_TEXTURE := preload("res://assets/craftpix/1 Fisherman/Fisherman_idle.png")
+const FISHERMAN_HOOK_TEXTURE := preload("res://assets/craftpix/1 Fisherman/Fisherman_hook.png")
+const FISHERMAN_FRAME_SIZE := Vector2(48, 48)
 
 const RECIPES := [
 	{
@@ -57,6 +73,10 @@ var mode := "menu"
 var fishing_phase := "idle"
 var message := ""
 var bite_started_at := 0.0
+var lure_motion_started_at := 0.0
+var lure_breaths_remaining := 0
+var lure_breaths_total := 0
+var fishing_redraw_elapsed := 0.0
 var restaurant_refresh_elapsed := 0.0
 var summary_finalized := false
 
@@ -75,6 +95,17 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if mode == "fishing":
+		fishing_redraw_elapsed += delta
+		if fishing_redraw_elapsed >= FISHING_REDRAW_SECONDS:
+			fishing_redraw_elapsed = 0.0
+			if fishing_phase == "idle":
+				_clear_layer(background_layer)
+				_draw_fishing_background()
+			else:
+				_show_fishing()
+		return
+
 	if mode != "restaurant":
 		return
 
@@ -100,7 +131,7 @@ func _create_layers() -> void:
 func _create_timers() -> void:
 	bite_timer = Timer.new()
 	bite_timer.one_shot = true
-	bite_timer.timeout.connect(_start_bite)
+	bite_timer.timeout.connect(_advance_lure_sequence)
 	add_child(bite_timer)
 
 	fail_timer = Timer.new()
@@ -231,11 +262,12 @@ func _show_fishing() -> void:
 		"Lances %s/%s" % [day["casts_left"], DAILY_CASTS]
 	])
 	_add_toast(message)
+	_add_fishing_meter()
 
 	var controls := _bottom_controls()
 	controls.add_child(_button("Rentar barco (%s)" % BOAT_RENTAL_COST, Callable(self, "_rent_boat"), day["boat_rented"]))
 	controls.add_child(_button("Lanzar caña", Callable(self, "_cast_line"), not day["boat_rented"] or fishing_phase != "idle" or day["casts_left"] <= 0, "secondary"))
-	controls.add_child(_button("¡Jalar!", Callable(self, "_hook_fish"), fishing_phase != "bite", "danger"))
+	controls.add_child(_button("¡Jalar!", Callable(self, "_hook_fish"), fishing_phase == "idle", "danger", true))
 	controls.add_child(_button("Ir al restaurante", Callable(self, "_open_restaurant"), day["casts_left"] == DAILY_CASTS or fishing_phase != "idle"))
 
 
@@ -259,8 +291,44 @@ func _cast_line() -> void:
 		return
 
 	fishing_phase = "waiting"
+	lure_breaths_total = rng.randi_range(2, 4)
+	lure_breaths_remaining = lure_breaths_total
+	lure_motion_started_at = _now_seconds()
+	fishing_redraw_elapsed = 0.0
 	message = "El señuelo respira... espera que se hunda."
-	bite_timer.wait_time = rng.randf_range(0.85, 1.65)
+	bite_timer.wait_time = rng.randf_range(1.15, 1.85)
+	bite_timer.start()
+	_show_fishing()
+
+
+func _advance_lure_sequence() -> void:
+	if fishing_phase != "waiting":
+		if fishing_phase == "breath":
+			_return_lure_to_surface()
+		return
+
+	if lure_breaths_remaining > 0:
+		_start_lure_breath()
+		return
+
+	_start_bite()
+
+
+func _start_lure_breath() -> void:
+	fishing_phase = "breath"
+	lure_motion_started_at = _now_seconds()
+	message = "Respiración falsa... no jales todavía."
+	bite_timer.wait_time = LURE_BREATH_SECONDS
+	bite_timer.start()
+	_show_fishing()
+
+
+func _return_lure_to_surface() -> void:
+	lure_breaths_remaining = max(0, lure_breaths_remaining - 1)
+	fishing_phase = "waiting"
+	lure_motion_started_at = _now_seconds()
+	message = "El señuelo vuelve a flotar. Mantén el pulso."
+	bite_timer.wait_time = rng.randf_range(0.85, 1.45)
 	bite_timer.start()
 	_show_fishing()
 
@@ -270,9 +338,10 @@ func _start_bite() -> void:
 		return
 
 	fishing_phase = "bite"
-	bite_started_at = Time.get_ticks_msec() / 1000.0
-	message = "¡Se hundió! Tienes menos de 0.45s para pesca perfecta."
-	fail_timer.wait_time = 0.65
+	bite_started_at = _now_seconds()
+	lure_motion_started_at = bite_started_at
+	message = "¡Se hundió! Jala antes de 0.45s para pesca perfecta."
+	fail_timer.wait_time = GOOD_WINDOW_SECONDS
 	fail_timer.start()
 	_show_fishing()
 
@@ -285,7 +354,7 @@ func _hook_fish() -> void:
 		_finish_catch("early")
 		return
 
-	var elapsed := (Time.get_ticks_msec() / 1000.0) - bite_started_at
+	var elapsed := _now_seconds() - bite_started_at
 	if elapsed <= PERFECT_WINDOW_SECONDS:
 		_finish_catch("perfect")
 	elif elapsed <= GOOD_WINDOW_SECONDS:
@@ -301,6 +370,9 @@ func _finish_catch(result: String) -> void:
 	bite_timer.stop()
 	fail_timer.stop()
 	fishing_phase = "idle"
+	lure_breaths_remaining = 0
+	lure_breaths_total = 0
+	fishing_redraw_elapsed = 0.0
 	day["casts_left"] = max(0, day["casts_left"] - 1)
 
 	if result == "perfect":
@@ -325,9 +397,25 @@ func _catch_result_label(result: String) -> String:
 		"good":
 			return "Buena pesca: pescado normal."
 		"early":
-			return "Te adelantaste y espantaste la pesca."
+			return "Pesca fallida: jalaste antes de que se hundiera el señuelo."
 		_:
 			return "La pesca se escapó."
+
+
+func _now_seconds() -> float:
+	return Time.get_ticks_msec() / 1000.0
+
+
+func _bite_elapsed() -> float:
+	if fishing_phase != "bite":
+		return 0.0
+	return maxf(0.0, _now_seconds() - bite_started_at)
+
+
+func _lure_motion_ratio() -> float:
+	if fishing_phase != "breath":
+		return 0.0
+	return clampf((_now_seconds() - lure_motion_started_at) / LURE_BREATH_SECONDS, 0.0, 1.0)
 
 
 func _open_restaurant() -> void:
@@ -690,16 +778,102 @@ func _draw_menu_background() -> void:
 
 
 func _draw_fishing_background() -> void:
-	_add_color_bg(Color("#83c5be"))
-	_add_texture(WATER_TEXTURE, Vector2(0.5, 0.45), Vector2(4.0, 3.2), 0.28)
-	_add_scene_band(Color("#66aeb8"), 0.34, 0.48)
-	_add_scene_band(Color("#6bb7b0"), 0.48, 0.62)
-	_add_bottom_band(Color("#6a4a2f"), 170)
-	_add_scene_band(Color("#8b5a33"), 0.82, 0.87)
-	_add_texture(BOAT_TEXTURE, Vector2(0.5, 0.64), Vector2(2.0, 2.0), 1.0)
-	_add_texture(ROD_TEXTURE, Vector2(0.55, 0.58), Vector2(1.15, 1.15), 0.95, 28.0)
+	_add_full_texture(FISHING_SEASCAPE_TEXTURE)
+	_draw_animated_water()
+	_add_scene_band(Color(0.14, 0.11, 0.16, 0.42), 0.84, 1.0)
+	_add_texture(BOAT_TEXTURE, BOAT_ANCHOR, Vector2(2.0, 2.0), 1.0)
+	_draw_fisherman()
 	var fish_texture: Texture2D = FISH_PREMIUM_TEXTURE if fishing_phase == "bite" else FISH_NORMAL_TEXTURE
-	_add_texture(fish_texture, Vector2(0.64, 0.46), Vector2(0.9, 0.9), 0.92 if fishing_phase == "bite" else 0.25)
+	var fish_alpha := 0.9 if fishing_phase == "bite" else 0.34
+	var fish_bob := sin(_now_seconds() * 3.4) * 0.006
+	_add_texture(fish_texture, FISH_ANCHOR + Vector2(0.0, fish_bob), Vector2(0.78, 0.78), fish_alpha)
+	_draw_fishing_lure()
+
+
+func _draw_fisherman() -> void:
+	var texture := FISHERMAN_IDLE_TEXTURE
+	var frame := 1
+	if fishing_phase == "bite":
+		texture = FISHERMAN_HOOK_TEXTURE
+		frame = 3
+	elif fishing_phase == "breath" or fishing_phase == "waiting":
+		texture = FISHERMAN_HOOK_TEXTURE
+		frame = 1 if int(_now_seconds() * 8.0) % 2 == 0 else 2
+
+	if fishing_phase != "idle":
+		_add_rod_line(ROD_BUTT_ANCHOR, _rod_tip_anchor())
+	_add_sprite_frame(texture, frame, FISHERMAN_ANCHOR, Vector2(0.92, 0.92), 1.0)
+
+
+func _draw_fishing_lure() -> void:
+	var lure_anchor := LURE_SURFACE_ANCHOR
+	var lure_texture := LURE_TEXTURE
+	var lure_scale := Vector2(0.34, 0.34)
+	var ripple_alpha := 0.35
+
+	if fishing_phase == "waiting":
+		var bob := sin((_now_seconds() - lure_motion_started_at) * 8.0) * 0.008
+		lure_anchor.y += bob
+	elif fishing_phase == "breath":
+		var ratio := _lure_motion_ratio()
+		lure_anchor.y += sin(ratio * PI) * 0.045
+		lure_scale = Vector2(0.38, 0.38)
+		ripple_alpha = 0.75
+	elif fishing_phase == "bite":
+		lure_anchor.y += 0.055
+		lure_texture = LURE_SINK_TEXTURE
+		lure_scale = Vector2(0.42, 0.42)
+		ripple_alpha = 1.0
+
+	if fishing_phase != "idle":
+		_add_lure_line(_rod_tip_anchor(), lure_anchor)
+		_add_ripple(lure_anchor + Vector2(0.0, 0.018), ripple_alpha)
+		_add_texture(lure_texture, lure_anchor, lure_scale, 1.0)
+		if fishing_phase == "bite":
+			_add_texture(BITE_SPLASH_TEXTURE, lure_anchor + Vector2(0.0, -0.018), Vector2(0.58, 0.58), 1.0)
+
+
+func _draw_animated_water() -> void:
+	var viewport_size := get_viewport_rect().size
+	var time := _now_seconds()
+	var water_tint := ColorRect.new()
+	water_tint.color = Color(0.15, 0.36, 0.58, 0.12)
+	water_tint.anchor_left = 0.0
+	water_tint.anchor_right = 1.0
+	water_tint.anchor_top = WATER_SURFACE_TOP
+	water_tint.anchor_bottom = 1.0
+	background_layer.add_child(water_tint)
+
+	for index in range(9):
+		var line := Line2D.new()
+		line.width = 2.0 if index % 3 == 0 else 1.0
+		line.default_color = Color(0.78, 0.88, 0.84, 0.22 if index % 2 == 0 else 0.14)
+		var y := viewport_size.y * (WATER_SURFACE_TOP + 0.025 + float(index) * 0.038)
+		var x_offset := fmod(time * (18.0 + index * 2.5) + index * 43.0, 96.0) - 96.0
+		for point_index in range(9):
+			var x := x_offset + point_index * (viewport_size.x / 7.0)
+			var wave := sin(time * 2.4 + point_index * 0.9 + index) * (2.0 + index * 0.15)
+			line.add_point(Vector2(x, y + wave))
+		background_layer.add_child(line)
+
+
+func _rod_tip_anchor() -> Vector2:
+	if fishing_phase == "bite":
+		return ROD_TIP_CAST + Vector2(0.008, 0.016)
+	if fishing_phase == "waiting" or fishing_phase == "breath":
+		var lift := sin((_now_seconds() - lure_motion_started_at) * 6.0) * 0.004
+		return ROD_TIP_CAST + Vector2(0.0, lift)
+	return ROD_TIP_IDLE
+
+
+func _add_rod_line(from_anchor: Vector2, to_anchor: Vector2) -> void:
+	var viewport_size := get_viewport_rect().size
+	var rod := Line2D.new()
+	rod.width = 3.0
+	rod.default_color = Color(0.16, 0.07, 0.04, 0.95)
+	rod.add_point(Vector2(from_anchor.x * viewport_size.x, from_anchor.y * viewport_size.y))
+	rod.add_point(Vector2(to_anchor.x * viewport_size.x, to_anchor.y * viewport_size.y))
+	background_layer.add_child(rod)
 
 
 func _draw_restaurant_background() -> void:
@@ -726,10 +900,11 @@ func _draw_restaurant_status() -> void:
 	for customer_item in restaurant.get("customers", []):
 		var customer: Dictionary = customer_item as Dictionary
 		var card := _status_card()
+		var card_content := card.get_node("Content") as VBoxContainer
 		var recipe: Dictionary = _get_recipe(customer["order_recipe_id"])
 		var face: String = "?" if not customer["served"] else _face_for(customer["satisfaction"])
-		card.add_child(_label(face, 22, Color("#1d1b1b"), true))
-		card.add_child(_label(recipe["short_name"], 13, Color("#08303b"), true))
+		card_content.add_child(_label(face, 22, Color("#1d1b1b"), true))
+		card_content.add_child(_label(recipe["short_name"], 13, Color("#08303b"), true))
 		overlay.add_child(card)
 
 
@@ -773,9 +948,43 @@ func _add_scene_band(color: Color, top_ratio: float, bottom_ratio: float) -> voi
 	background_layer.add_child(band)
 
 
+func _add_lure_line(from_anchor: Vector2, to_anchor: Vector2) -> void:
+	var viewport_size := get_viewport_rect().size
+	var line := Line2D.new()
+	line.width = 2.0
+	line.default_color = Color(0.92, 0.97, 0.94, 0.78)
+	line.add_point(Vector2(from_anchor.x * viewport_size.x, from_anchor.y * viewport_size.y))
+	line.add_point(Vector2(to_anchor.x * viewport_size.x, to_anchor.y * viewport_size.y))
+	background_layer.add_child(line)
+
+
+func _add_ripple(anchor: Vector2, alpha: float) -> void:
+	var viewport_size := get_viewport_rect().size
+	var ring := Line2D.new()
+	ring.width = 3.0
+	ring.default_color = Color(0.92, 1.0, 0.96, alpha)
+	var center := Vector2(anchor.x * viewport_size.x, anchor.y * viewport_size.y)
+	var radius := 22.0 + (alpha * 18.0)
+	for index in range(18):
+		var angle := (TAU / 17.0) * index
+		ring.add_point(center + Vector2(cos(angle) * radius, sin(angle) * radius * 0.36))
+	background_layer.add_child(ring)
+
+
+func _add_full_texture(texture: Texture2D) -> void:
+	var rect := TextureRect.new()
+	rect.texture = texture
+	rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	rect.stretch_mode = TextureRect.STRETCH_SCALE
+	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	background_layer.add_child(rect)
+
+
 func _add_texture(texture: Texture2D, anchor: Vector2, scale: Vector2, alpha: float, rotation_degrees_value := 0.0) -> void:
 	var rect := TextureRect.new()
 	rect.texture = texture
+	rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	rect.modulate.a = alpha
@@ -791,6 +1000,13 @@ func _add_texture(texture: Texture2D, anchor: Vector2, scale: Vector2, alpha: fl
 	rect.offset_top = -rect.custom_minimum_size.y / 2.0
 	rect.offset_bottom = rect.custom_minimum_size.y / 2.0
 	background_layer.add_child(rect)
+
+
+func _add_sprite_frame(texture: Texture2D, frame: int, anchor: Vector2, scale: Vector2, alpha: float) -> void:
+	var atlas := AtlasTexture.new()
+	atlas.atlas = texture
+	atlas.region = Rect2(FISHERMAN_FRAME_SIZE.x * frame, 0.0, FISHERMAN_FRAME_SIZE.x, FISHERMAN_FRAME_SIZE.y)
+	_add_texture(atlas, anchor, scale, alpha)
 
 
 func _center_text(text: String, size: int, color: Color, anchor: Vector2) -> Label:
@@ -846,6 +1062,68 @@ func _add_toast(text: String) -> void:
 	var toast := _text_panel(text, 15, Color("#e9f7ef"), true)
 	toast.custom_minimum_size = Vector2(maxf(280.0, get_viewport_rect().size.x - 32.0), 58)
 	container.add_child(toast)
+
+
+func _add_fishing_meter() -> void:
+	if fishing_phase == "idle":
+		return
+
+	var container := CenterContainer.new()
+	container.anchor_left = 0.0
+	container.anchor_right = 1.0
+	container.anchor_top = 0.3
+	container.anchor_bottom = 0.3
+	container.offset_left = 18
+	container.offset_right = -18
+	ui_layer.add_child(container)
+
+	var meter := VBoxContainer.new()
+	meter.custom_minimum_size = Vector2(minf(420.0, get_viewport_rect().size.x - 36.0), 0)
+	meter.add_theme_constant_override("separation", 8)
+	container.add_child(meter)
+
+	var caption := "Observa el señuelo"
+	if fishing_phase == "breath":
+		caption = "Respiración falsa"
+	elif fishing_phase == "bite":
+		caption = "¡Jala ahora!"
+	meter.add_child(_text_panel(caption, 14, Color("#e9f7ef"), true))
+
+	var track := PanelContainer.new()
+	track.custom_minimum_size = Vector2(0, 24)
+	track.add_theme_stylebox_override("panel", _meter_track_style())
+	meter.add_child(track)
+
+	var track_content := Control.new()
+	track_content.custom_minimum_size = Vector2(0, 20)
+	track.add_child(track_content)
+
+	var fill := ColorRect.new()
+	fill.color = Color("#f6c177")
+	fill.anchor_left = 0.0
+	fill.anchor_right = _fishing_meter_ratio()
+	fill.anchor_top = 0.0
+	fill.anchor_bottom = 1.0
+	track_content.add_child(fill)
+
+	var perfect_mark := ColorRect.new()
+	perfect_mark.color = Color(0.92, 1.0, 0.96, 0.8)
+	perfect_mark.anchor_left = PERFECT_WINDOW_SECONDS / GOOD_WINDOW_SECONDS
+	perfect_mark.anchor_right = perfect_mark.anchor_left
+	perfect_mark.anchor_top = 0.0
+	perfect_mark.anchor_bottom = 1.0
+	perfect_mark.offset_left = -1
+	perfect_mark.offset_right = 1
+	track_content.add_child(perfect_mark)
+
+
+func _fishing_meter_ratio() -> float:
+	if fishing_phase == "bite":
+		return clampf(_bite_elapsed() / GOOD_WINDOW_SECONDS, 0.0, 1.0)
+	if fishing_phase == "breath":
+		return clampf(_lure_motion_ratio(), 0.0, 1.0)
+	var wait_progress := 1.0 - clampf(bite_timer.time_left / maxf(0.001, bite_timer.wait_time), 0.0, 1.0)
+	return wait_progress
 
 
 func _bottom_panel(width := 460) -> VBoxContainer:
@@ -914,7 +1192,7 @@ func _button_row() -> GridContainer:
 	return row
 
 
-func _button(text: String, action: Callable, disabled := false, variant := "primary") -> Button:
+func _button(text: String, action: Callable, disabled := false, variant := "primary", press_on_down := false) -> Button:
 	var button := Button.new()
 	button.text = text
 	button.disabled = disabled
@@ -927,7 +1205,10 @@ func _button(text: String, action: Callable, disabled := false, variant := "prim
 	button.add_theme_font_size_override("font_size", 16)
 	button.clip_text = true
 	button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	button.pressed.connect(action)
+	if press_on_down:
+		button.button_down.connect(action)
+	else:
+		button.pressed.connect(action)
 	return button
 
 
@@ -945,12 +1226,16 @@ func _chip(text: String) -> PanelContainer:
 	return chip
 
 
-func _status_card() -> VBoxContainer:
-	var card := VBoxContainer.new()
+func _status_card() -> PanelContainer:
+	var card := PanelContainer.new()
 	card.custom_minimum_size = Vector2(118, 82)
-	card.alignment = BoxContainer.ALIGNMENT_CENTER
-	card.add_theme_constant_override("separation", 4)
 	card.add_theme_stylebox_override("panel", _light_panel_style())
+
+	var content := VBoxContainer.new()
+	content.name = "Content"
+	content.alignment = BoxContainer.ALIGNMENT_CENTER
+	content.add_theme_constant_override("separation", 4)
+	card.add_child(content)
 	return card
 
 
@@ -1012,6 +1297,15 @@ func _chip_style() -> StyleBoxFlat:
 	var style := _panel_style()
 	style.bg_color = Color(0.03, 0.12, 0.15, 0.82)
 	_set_style_margins(style, 9)
+	return style
+
+
+func _meter_track_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.03, 0.12, 0.15, 0.88)
+	style.border_color = Color(0.92, 0.97, 0.94, 0.42)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(4)
 	return style
 
 
