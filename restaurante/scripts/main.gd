@@ -13,11 +13,9 @@ const CUSTOMER_PATIENCE_SECONDS := 22.0
 const WATER_SURFACE_TOP := 0.615
 const BOAT_ANCHOR := Vector2(0.46, 0.72)
 const FISHERMAN_ANCHOR := Vector2(0.458, 0.665)
-const ROD_BUTT_ANCHOR := Vector2(0.472, 0.705)
-const ROD_TIP_IDLE := Vector2(0.515, 0.686)
-const ROD_TIP_CAST := Vector2(0.565, 0.662)
-const LURE_SURFACE_ANCHOR := Vector2(0.60, 0.665)
-const FISH_ANCHOR := Vector2(0.66, 0.66)
+const FISHING_ROD_TIP_ANCHOR := Vector2(0.505, 0.625)
+const LURE_SURFACE_ANCHOR := Vector2(0.595, 0.735)
+const FISH_ANCHOR := Vector2(0.61, 0.79)
 
 const WATER_TEXTURE := preload("res://assets/craftpix/3 Objects/Water.png")
 const HUT_TEXTURE := preload("res://assets/craftpix/3 Objects/Fishing_hut.png")
@@ -262,7 +260,6 @@ func _show_fishing() -> void:
 		"Lances %s/%s" % [day["casts_left"], DAILY_CASTS]
 	])
 	_add_toast(message)
-	_add_fishing_meter()
 
 	var controls := _bottom_controls()
 	controls.add_child(_button("Rentar barco (%s)" % BOAT_RENTAL_COST, Callable(self, "_rent_boat"), day["boat_rented"]))
@@ -800,8 +797,6 @@ func _draw_fisherman() -> void:
 		texture = FISHERMAN_HOOK_TEXTURE
 		frame = 1 if int(_now_seconds() * 8.0) % 2 == 0 else 2
 
-	if fishing_phase != "idle":
-		_add_rod_line(ROD_BUTT_ANCHOR, _rod_tip_anchor())
 	_add_sprite_frame(texture, frame, FISHERMAN_ANCHOR, Vector2(0.92, 0.92), 1.0)
 
 
@@ -826,11 +821,31 @@ func _draw_fishing_lure() -> void:
 		ripple_alpha = 1.0
 
 	if fishing_phase != "idle":
-		_add_lure_line(_rod_tip_anchor(), lure_anchor)
+		_draw_fishing_line(lure_anchor)
 		_add_ripple(lure_anchor + Vector2(0.0, 0.018), ripple_alpha)
 		_add_texture(lure_texture, lure_anchor, lure_scale, 1.0)
 		if fishing_phase == "bite":
 			_add_texture(BITE_SPLASH_TEXTURE, lure_anchor + Vector2(0.0, -0.018), Vector2(0.58, 0.58), 1.0)
+
+
+func _draw_fishing_line(lure_anchor: Vector2) -> void:
+	var viewport_size := get_viewport_rect().size
+	var start := FISHING_ROD_TIP_ANCHOR * viewport_size
+	var end := lure_anchor * viewport_size
+	_add_pixel_line([start, end], Color("#1d1b1b"), 1.6)
+
+
+func _add_pixel_line(points: Array, color: Color, width: float) -> void:
+	var line := Line2D.new()
+	line.width = width
+	line.default_color = color
+	line.antialiased = false
+	line.joint_mode = Line2D.LINE_JOINT_SHARP
+	line.begin_cap_mode = Line2D.LINE_CAP_BOX
+	line.end_cap_mode = Line2D.LINE_CAP_BOX
+	for point in points:
+		line.add_point(point)
+	background_layer.add_child(line)
 
 
 func _draw_animated_water() -> void:
@@ -855,25 +870,6 @@ func _draw_animated_water() -> void:
 			var wave := sin(time * 2.4 + point_index * 0.9 + index) * (2.0 + index * 0.15)
 			line.add_point(Vector2(x, y + wave))
 		background_layer.add_child(line)
-
-
-func _rod_tip_anchor() -> Vector2:
-	if fishing_phase == "bite":
-		return ROD_TIP_CAST + Vector2(0.008, 0.016)
-	if fishing_phase == "waiting" or fishing_phase == "breath":
-		var lift := sin((_now_seconds() - lure_motion_started_at) * 6.0) * 0.004
-		return ROD_TIP_CAST + Vector2(0.0, lift)
-	return ROD_TIP_IDLE
-
-
-func _add_rod_line(from_anchor: Vector2, to_anchor: Vector2) -> void:
-	var viewport_size := get_viewport_rect().size
-	var rod := Line2D.new()
-	rod.width = 3.0
-	rod.default_color = Color(0.16, 0.07, 0.04, 0.95)
-	rod.add_point(Vector2(from_anchor.x * viewport_size.x, from_anchor.y * viewport_size.y))
-	rod.add_point(Vector2(to_anchor.x * viewport_size.x, to_anchor.y * viewport_size.y))
-	background_layer.add_child(rod)
 
 
 func _draw_restaurant_background() -> void:
@@ -946,16 +942,6 @@ func _add_scene_band(color: Color, top_ratio: float, bottom_ratio: float) -> voi
 	band.anchor_top = top_ratio
 	band.anchor_bottom = bottom_ratio
 	background_layer.add_child(band)
-
-
-func _add_lure_line(from_anchor: Vector2, to_anchor: Vector2) -> void:
-	var viewport_size := get_viewport_rect().size
-	var line := Line2D.new()
-	line.width = 2.0
-	line.default_color = Color(0.92, 0.97, 0.94, 0.78)
-	line.add_point(Vector2(from_anchor.x * viewport_size.x, from_anchor.y * viewport_size.y))
-	line.add_point(Vector2(to_anchor.x * viewport_size.x, to_anchor.y * viewport_size.y))
-	background_layer.add_child(line)
 
 
 func _add_ripple(anchor: Vector2, alpha: float) -> void:
