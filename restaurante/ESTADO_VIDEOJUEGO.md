@@ -1,5 +1,71 @@
 # Estado actual del videojuego
 
+## Actualización: cocina y protagonista
+
+Se integraron los assets entregados por el usuario en `assets/protagonist/`:
+
+- `cocinero.png` y `cocinero_front.png` para el escenario de restaurante.
+- `pescador.png` y `pescador_front.png` para el escenario de pesca.
+- `plato.jpg` como referencia visual de platos en la cocina y el menú.
+- `asset_pj.jpeg` como hoja fuente del personaje con trajes, direcciones, caminata y acciones de pesca.
+- `cana.jpeg` como referencia de caña de pesca.
+- `frames/*.png` como recortes transparentes usados directamente por Godot.
+
+Los personajes se mantienen en PNG. Las variantes `_front.png` son recortes del frente de cada archivo original para usarlos como sprite directo dentro del juego.
+
+### Flujo nuevo del restaurante
+
+Antes de abrir la cocina aparece una pantalla de **Menú del día**. El jugador puede elegir hasta 3 platos desbloqueados para vender durante la jornada. Con las 3 recetas actuales, todas quedan seleccionadas por defecto, pero el sistema ya está preparado para más recetas.
+
+Los pedidos del día se generan solo desde `restaurant["day_menu"]`, no desde todo el listado de recetas desbloqueadas.
+
+### Llegada de clientes
+
+Los clientes ya no aparecen todos al mismo tiempo. Cada cliente empieza en estado `waiting_to_arrive`, entra al puesto con una separación aproximada de 5 a 8 segundos y solo entonces:
+
+- se dibuja su tarjeta en la cocina;
+- aparece su botón de entrega;
+- empieza a contar su paciencia.
+
+La paciencia ya no corre mientras el cliente todavía no llegó.
+
+### Vista de cocina
+
+La pantalla de restaurante ahora separa visualmente:
+
+- protagonista cocinero;
+- hornillas como estaciones de cocina;
+- clientes presentes como tarjetas compactas;
+- panel inferior con recetas del menú, entregas disponibles y cierre del día.
+
+### Fondos de cocina por mejora
+
+Se agregaron fondos nuevos en `assets/restaurant/`:
+
+- `cocinal1.png`: cocina base para `upgrade_level == 0`.
+- `cocina2.png`: cocina mejorada para `upgrade_level >= 1`, reutilizada para L2, L3 y futuros niveles mientras no exista otro fondo.
+
+El restaurante ahora usa estos fondos como imagen full-screen en lugar del fondo procedural anterior. Al abrir el proyecto en Godot, el editor debe importar estos PNG y generar sus archivos `.import`.
+
+### Clientes sentados
+
+Se agregaron placeholders simples en `assets/restaurant/client_placeholder_*.png`. Los clientes se dibujan sentados en las mesas solo cuando su estado ya no es `waiting_to_arrive`. Si el cliente está presente, aparece con el plato pedido y paciencia restante; si ya fue atendido, queda visible con la cara de satisfacción final.
+
+### Animaciones del protagonista
+
+El protagonista ya no se dibuja como una imagen completamente estática. En pesca usa los frames de `asset_pj.jpeg` y cambia por estado:
+
+- reposo con respiración y balanceo leve;
+- lanzamiento de caña al iniciar el lance;
+- espera con señuelo flotando;
+- respiración falsa con los frames `respira_1`, `respira_2` y `respira_3`;
+- mordida real con frame de tensión y vibración;
+- jalar/pesca exitosa al terminar con buena o perfecta.
+
+La línea, el señuelo, el splash y el bote también tienen movimiento para reforzar la lectura de la pesca. En restaurante, el cocinero tiene respiración y balanceo sutil mientras la cocina está abierta.
+
+Como los frames de `asset_pj.jpeg` ya incluyen caña, línea, boya y algunos efectos de agua, el dibujo procedural anterior de línea/señuelo se desactiva cuando se usan esos frames. Esto evita que aparezcan dos cañas o dos líneas superpuestas.
+
 ## Proyecto
 
 **Nombre:** La Pochita Stone  

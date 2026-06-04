@@ -26,9 +26,37 @@ const FISH_PREMIUM_TEXTURE := preload("res://assets/pixelart/fish_premium_pixel.
 const LURE_TEXTURE := preload("res://assets/pixelart/lure_bobber.png")
 const LURE_SINK_TEXTURE := preload("res://assets/pixelart/lure_sink.png")
 const BITE_SPLASH_TEXTURE := preload("res://assets/pixelart/bite_splash.png")
-const FISHERMAN_IDLE_TEXTURE := preload("res://assets/craftpix/1 Fisherman/Fisherman_idle.png")
-const FISHERMAN_HOOK_TEXTURE := preload("res://assets/craftpix/1 Fisherman/Fisherman_hook.png")
-const FISHERMAN_FRAME_SIZE := Vector2(48, 48)
+const PROTAGONIST_FISHER_TEXTURE := preload("res://assets/protagonist/pescador_front.png")
+const PROTAGONIST_COOK_TEXTURE := preload("res://assets/protagonist/cocinero_front.png")
+const FISHER_IDLE_1_TEXTURE := preload("res://assets/protagonist/frames/fisher_idle_1.png")
+const FISHER_IDLE_2_TEXTURE := preload("res://assets/protagonist/frames/fisher_idle_2.png")
+const FISHER_WALK_1_TEXTURE := preload("res://assets/protagonist/frames/fisher_walk_1.png")
+const FISHER_WALK_2_TEXTURE := preload("res://assets/protagonist/frames/fisher_walk_2.png")
+const COOK_IDLE_1_TEXTURE := preload("res://assets/protagonist/frames/cook_idle_1.png")
+const COOK_IDLE_2_TEXTURE := preload("res://assets/protagonist/frames/cook_idle_2.png")
+const COOK_WALK_1_TEXTURE := preload("res://assets/protagonist/frames/cook_walk_1.png")
+const COOK_WALK_2_TEXTURE := preload("res://assets/protagonist/frames/cook_walk_2.png")
+const FISHING_REST_TEXTURE := preload("res://assets/protagonist/frames/fish_reposo.png")
+const FISHING_CAST_TEXTURE := preload("res://assets/protagonist/frames/fish_lanzar.png")
+const FISHING_WAIT_TEXTURE := preload("res://assets/protagonist/frames/fish_espera.png")
+const FISHING_BREATH_1_TEXTURE := preload("res://assets/protagonist/frames/fish_respira_1.png")
+const FISHING_BREATH_2_TEXTURE := preload("res://assets/protagonist/frames/fish_respira_2.png")
+const FISHING_BREATH_3_TEXTURE := preload("res://assets/protagonist/frames/fish_respira_3.png")
+const FISHING_BITE_TEXTURE := preload("res://assets/protagonist/frames/fish_mordida.png")
+const FISHING_PULL_TEXTURE := preload("res://assets/protagonist/frames/fish_jalar.png")
+const DISH_REFERENCE_TEXTURE := preload("res://assets/protagonist/plato.jpg")
+const RESTAURANT_BASE_TEXTURE := preload("res://assets/restaurant/cocinal1.png")
+const RESTAURANT_UPGRADED_TEXTURE := preload("res://assets/restaurant/cocina2.png")
+const CLIENT_PLACEHOLDER_1_TEXTURE := preload("res://assets/restaurant/client_placeholder_1.png")
+const CLIENT_PLACEHOLDER_2_TEXTURE := preload("res://assets/restaurant/client_placeholder_2.png")
+const CLIENT_PLACEHOLDER_3_TEXTURE := preload("res://assets/restaurant/client_placeholder_3.png")
+const CLIENT_PLACEHOLDER_4_TEXTURE := preload("res://assets/restaurant/client_placeholder_4.png")
+const MAX_DAY_MENU_RECIPES := 3
+const DAILY_CUSTOMERS := 4
+const FIRST_CUSTOMER_DELAY_SECONDS := 1.4
+const MIN_CUSTOMER_ARRIVAL_GAP_SECONDS := 5.0
+const MAX_CUSTOMER_ARRIVAL_GAP_SECONDS := 8.0
+const CATCH_REACTION_SECONDS := 1.15
 
 const RECIPES := [
 	{
@@ -71,12 +99,16 @@ var mode := "menu"
 var fishing_phase := "idle"
 var message := ""
 var bite_started_at := 0.0
+var cast_started_at := 0.0
 var lure_motion_started_at := 0.0
 var lure_breaths_remaining := 0
 var lure_breaths_total := 0
 var fishing_redraw_elapsed := 0.0
 var restaurant_refresh_elapsed := 0.0
 var summary_finalized := false
+var selected_day_menu: Array = []
+var last_catch_result := ""
+var last_catch_started_at := -10.0
 
 var background_layer: Control
 var ui_layer: Control
@@ -109,8 +141,9 @@ func _process(delta: float) -> void:
 
 	restaurant_refresh_elapsed += delta
 	var stoves_changed := _update_stoves()
+	var arrivals_changed := _update_customer_arrivals()
 	var customers_changed := _close_late_customers()
-	var changed := stoves_changed or customers_changed
+	var changed := stoves_changed or arrivals_changed or customers_changed
 	if changed or restaurant_refresh_elapsed >= 0.25:
 		restaurant_refresh_elapsed = 0.0
 		_show_restaurant()
@@ -288,6 +321,7 @@ func _cast_line() -> void:
 		return
 
 	fishing_phase = "waiting"
+	cast_started_at = _now_seconds()
 	lure_breaths_total = rng.randi_range(2, 4)
 	lure_breaths_remaining = lure_breaths_total
 	lure_motion_started_at = _now_seconds()
@@ -366,6 +400,8 @@ func _finish_catch(result: String) -> void:
 
 	bite_timer.stop()
 	fail_timer.stop()
+	last_catch_result = result
+	last_catch_started_at = _now_seconds()
 	fishing_phase = "idle"
 	lure_breaths_remaining = 0
 	lure_breaths_total = 0
@@ -416,13 +452,81 @@ func _lure_motion_ratio() -> float:
 
 
 func _open_restaurant() -> void:
-	restaurant = _create_restaurant_state()
-	message = "Abre las hornillas y sirve antes de que se cansen."
+	restaurant = {}
+	selected_day_menu = _default_day_menu_recipe_ids()
+	message = "Elige hasta 3 platos para vender hoy."
+	_show_menu_setup()
+
+
+func _show_menu_setup() -> void:
+	mode = "menu_setup"
+	_reset_screen()
+	_draw_restaurant_background()
+	_add_top_bar([
+		"Monedas %s" % save["coins"],
+		"Normal %s · Premium %s · Aliño %s" % [day["inventory"]["normal_fish"], day["inventory"]["premium_fish"], day["inventory"]["placeholder_spice"]],
+		"Menú %s/%s" % [selected_day_menu.size(), MAX_DAY_MENU_RECIPES]
+	])
+	_add_toast(message)
+
+	var panel := _bottom_panel(640)
+	panel.add_child(_label("Menú del día", 24, Color("#f6c177"), true))
+	panel.add_child(_small_stat("Regla", "Elige hasta 3 platos. Los clientes pedirán solo este menú."))
+
+	var recipe_grid := _button_row()
+	for recipe_item in RECIPES:
+		var recipe_data: Dictionary = recipe_item as Dictionary
+		if save["unlocked_recipes"].has(recipe_data["id"]):
+			var selected: bool = selected_day_menu.has(recipe_data["id"])
+			var label_text: String = "[x] %s" % recipe_data["short_name"] if selected else str(recipe_data["short_name"])
+			var button_variant: String = "primary" if selected else "secondary"
+			recipe_grid.add_child(_button(label_text, Callable(self, "_toggle_day_menu_recipe").bind(recipe_data["id"]), false, button_variant))
+	panel.add_child(recipe_grid)
+
+	var start_row := _button_row()
+	start_row.add_child(_button("Abrir cocina", Callable(self, "_start_restaurant_day"), selected_day_menu.is_empty()))
+	start_row.add_child(_button("Volver a pescar", Callable(self, "_show_fishing"), false, "secondary"))
+	panel.add_child(start_row)
+
+
+func _toggle_day_menu_recipe(recipe_id: String) -> void:
+	if selected_day_menu.has(recipe_id):
+		selected_day_menu.erase(recipe_id)
+	elif selected_day_menu.size() < MAX_DAY_MENU_RECIPES:
+		selected_day_menu.append(recipe_id)
+	else:
+		message = "El menú del día solo permite 3 platos."
+		_show_menu_setup()
+		return
+
+	message = "Menú listo: %s/%s platos." % [selected_day_menu.size(), MAX_DAY_MENU_RECIPES]
+	_show_menu_setup()
+
+
+func _start_restaurant_day() -> void:
+	if selected_day_menu.is_empty():
+		message = "Elige al menos un plato para abrir la cocina."
+		_show_menu_setup()
+		return
+
+	restaurant = _create_restaurant_state(selected_day_menu)
+	message = "Cocina lo elegido y atiende cuando los clientes lleguen."
 	_show_restaurant()
 
 
-func _create_restaurant_state() -> Dictionary:
-	var orders: Array = _pick_order_recipes()
+func _default_day_menu_recipe_ids() -> Array:
+	var ids: Array = []
+	for recipe_item in RECIPES:
+		var recipe_data: Dictionary = recipe_item as Dictionary
+		if save["unlocked_recipes"].has(recipe_data["id"]):
+			ids.append(recipe_data["id"])
+		if ids.size() >= MAX_DAY_MENU_RECIPES:
+			break
+	return ids
+
+
+func _create_restaurant_state(day_menu: Array) -> Dictionary:
+	var orders: Array = _pick_order_recipes(day_menu)
 	var stoves: Array = []
 	for index in range(4):
 		stoves.append({
@@ -435,21 +539,28 @@ func _create_restaurant_state() -> Dictionary:
 
 	var customers: Array = []
 	var now: float = Time.get_ticks_msec() / 1000.0
-	for index in range(4):
+	var next_arrival := now + FIRST_CUSTOMER_DELAY_SECONDS
+	for index in range(DAILY_CUSTOMERS):
 		var recipe: Dictionary = orders[index % orders.size()] as Dictionary
 		customers.append({
 			"id": index + 1,
 			"order_recipe_id": recipe["id"],
-			"arrived_at": now + index * 1.2,
+			"arrives_at": next_arrival,
+			"arrived_at": 0.0,
 			"patience_seconds": CUSTOMER_PATIENCE_SECONDS + index * 2.5,
 			"satisfaction": "",
-			"served": false
+			"served": false,
+			"state": "waiting_to_arrive"
 		})
+		next_arrival += rng.randf_range(MIN_CUSTOMER_ARRIVAL_GAP_SECONDS, MAX_CUSTOMER_ARRIVAL_GAP_SECONDS)
 
-	return {"stoves": stoves, "customers": customers}
+	return {"stoves": stoves, "customers": customers, "day_menu": day_menu.duplicate()}
 
 
 func _show_restaurant() -> void:
+	_show_restaurant_v2()
+	return
+
 	mode = "restaurant"
 	_reset_screen()
 	_draw_restaurant_background()
@@ -489,6 +600,46 @@ func _show_restaurant() -> void:
 	panel.add_child(close_row)
 
 
+func _show_restaurant_v2() -> void:
+	mode = "restaurant"
+	_update_customer_arrivals()
+	_reset_screen()
+	_draw_restaurant_background()
+	_add_top_bar([
+		"Monedas %s" % save["coins"],
+		"Normal %s · Premium %s · Aliño %s" % [day["inventory"]["normal_fish"], day["inventory"]["premium_fish"], day["inventory"]["placeholder_spice"]],
+		"Atendidos %s/%s" % [day["summary"]["served"], DAILY_CUSTOMERS]
+	])
+	_add_toast(message)
+	_draw_restaurant_status()
+
+	var panel := _bottom_panel(660)
+	panel.add_child(_label("Cocina del puesto", 22, Color("#f6c177"), true))
+	panel.add_child(_small_stat("Hornillas", _stove_summary()))
+	panel.add_child(_small_stat("Pedidos", _customer_summary()))
+
+	var cook_row := _button_row()
+	for recipe_id in restaurant.get("day_menu", []):
+		var recipe_data: Dictionary = _get_recipe(str(recipe_id))
+		cook_row.add_child(_button("%s $%s" % [recipe_data["short_name"], DISH_PRICES[recipe_data["id"]]], Callable(self, "_start_cooking").bind(recipe_data["id"]), not _can_cook(recipe_data)))
+	panel.add_child(cook_row)
+
+	var deliver_row := _button_row()
+	var has_pending := false
+	for customer_item in restaurant["customers"]:
+		var customer_data: Dictionary = customer_item as Dictionary
+		if _is_customer_present(customer_data) and not customer_data["served"]:
+			has_pending = true
+			deliver_row.add_child(_button("Servir C%s" % customer_data["id"], Callable(self, "_deliver_to_customer").bind(customer_data["id"]), false, "secondary"))
+	if not has_pending:
+		deliver_row.add_child(_button(_next_customer_label(), Callable(self, "_show_summary"), true, "secondary"))
+	panel.add_child(deliver_row)
+
+	var close_row := _button_row()
+	close_row.add_child(_button("Cerrar día", Callable(self, "_show_summary"), false, "danger"))
+	panel.add_child(close_row)
+
+
 func _start_cooking(recipe_id: String) -> void:
 	var recipe: Dictionary = _get_recipe(recipe_id)
 	var stove: Dictionary = _first_free_stove()
@@ -516,6 +667,10 @@ func _deliver_to_customer(customer_id: int) -> void:
 		message = "Ese cliente ya fue atendido."
 		_show_restaurant()
 		return
+	if not _is_customer_present(customer):
+		message = "Ese cliente todavía no ha llegado."
+		_show_restaurant()
+		return
 
 	var stove: Dictionary = _find_ready_stove(customer["order_recipe_id"])
 	if stove.is_empty():
@@ -534,6 +689,7 @@ func _deliver_to_customer(customer_id: int) -> void:
 
 	customer["served"] = true
 	customer["satisfaction"] = satisfaction
+	customer["state"] = "served"
 	_clear_stove(stove)
 
 	day["summary"]["served"] += 1
@@ -557,14 +713,54 @@ func _update_stoves() -> bool:
 	return changed
 
 
+func _update_customer_arrivals() -> bool:
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var changed := false
+	for customer_item in restaurant.get("customers", []):
+		var customer: Dictionary = customer_item as Dictionary
+		if customer["state"] == "waiting_to_arrive" and now >= customer["arrives_at"]:
+			customer["state"] = "present"
+			customer["arrived_at"] = now
+			changed = true
+	return changed
+
+
+func _is_customer_present(customer: Dictionary) -> bool:
+	return customer.get("state", "") == "present" or customer.get("state", "") == "served"
+
+
+func _next_customer_label() -> String:
+	var eta := _next_customer_eta_seconds()
+	if eta >= 0:
+		return "Próximo cliente %ss" % eta
+	if day["summary"]["served"] >= DAILY_CUSTOMERS:
+		return "Clientes atendidos"
+	return "Esperando clientes"
+
+
+func _next_customer_eta_seconds() -> int:
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var best := -1.0
+	for customer_item in restaurant.get("customers", []):
+		var customer: Dictionary = customer_item as Dictionary
+		if customer["state"] == "waiting_to_arrive":
+			var eta: float = maxf(0.0, customer["arrives_at"] - now)
+			if best < 0.0 or eta < best:
+				best = eta
+	if best < 0.0:
+		return -1
+	return ceili(best)
+
+
 func _close_late_customers() -> bool:
 	var now: float = Time.get_ticks_msec() / 1000.0
 	var changed := false
 	for customer_item in restaurant.get("customers", []):
 		var customer: Dictionary = customer_item as Dictionary
-		if not customer["served"] and now - customer["arrived_at"] > customer["patience_seconds"]:
+		if customer["state"] == "present" and not customer["served"] and now - customer["arrived_at"] > customer["patience_seconds"]:
 			customer["served"] = true
 			customer["satisfaction"] = "unhappy"
+			customer["state"] = "served"
 			day["summary"]["served"] += 1
 			day["summary"]["unhappy"] += 1
 			changed = true
@@ -668,20 +864,22 @@ func _consume_recipe(recipe: Dictionary) -> bool:
 	return true
 
 
-func _pick_order_recipes() -> Array:
+func _pick_order_recipes(day_menu: Array) -> Array:
 	var cookable: Array = []
-	for recipe_item in RECIPES:
-		var recipe_data: Dictionary = recipe_item as Dictionary
+	for recipe_id in day_menu:
+		var recipe_data: Dictionary = _get_recipe(str(recipe_id))
 		if save["unlocked_recipes"].has(recipe_data["id"]) and _can_cook(recipe_data):
 			cookable.append(recipe_data)
 	if cookable.size() > 0:
 		return cookable
 
 	var unlocked: Array = []
-	for recipe_item in RECIPES:
-		var unlocked_recipe: Dictionary = recipe_item as Dictionary
+	for recipe_id in day_menu:
+		var unlocked_recipe: Dictionary = _get_recipe(str(recipe_id))
 		if save["unlocked_recipes"].has(unlocked_recipe["id"]):
 			unlocked.append(unlocked_recipe)
+	if unlocked.is_empty():
+		unlocked.append(RECIPES[0] as Dictionary)
 	return unlocked
 
 
@@ -738,6 +936,8 @@ func _score_satisfaction(customer: Dictionary, correct_dish: bool) -> String:
 
 
 func _stove_summary() -> String:
+	return _stove_summary_v2()
+
 	var parts: Array = []
 	var now: float = Time.get_ticks_msec() / 1000.0
 	for stove_item in restaurant["stoves"]:
@@ -752,6 +952,8 @@ func _stove_summary() -> String:
 
 
 func _customer_summary() -> String:
+	return _customer_summary_v2()
+
 	var parts: Array = []
 	for customer_item in restaurant["customers"]:
 		var customer: Dictionary = customer_item as Dictionary
@@ -768,6 +970,41 @@ func _customer_summary() -> String:
 	return " · ".join(parts)
 
 
+func _stove_summary_v2() -> String:
+	var parts: Array = []
+	var now: float = Time.get_ticks_msec() / 1000.0
+	for stove_item in restaurant["stoves"]:
+		var stove: Dictionary = stove_item as Dictionary
+		if stove["recipe_id"] == "":
+			parts.append("%s: libre" % (stove["id"] + 1))
+		else:
+			var recipe: Dictionary = _get_recipe(stove["recipe_id"])
+			var state: String = " listo" if stove["ready"] else " %ss" % max(0, ceili(stove["ready_at"] - now))
+			parts.append("%s: %s%s" % [stove["id"] + 1, recipe["short_name"], state])
+	return " · ".join(parts)
+
+
+func _customer_summary_v2() -> String:
+	var parts: Array = []
+	for customer_item in restaurant["customers"]:
+		var customer: Dictionary = customer_item as Dictionary
+		if customer["state"] == "waiting_to_arrive":
+			continue
+		var recipe: Dictionary = _get_recipe(customer["order_recipe_id"])
+		var face := ""
+		match customer["satisfaction"]:
+			"happy":
+				face = " :)"
+			"neutral":
+				face = " :|"
+			"unhappy":
+				face = " :("
+		parts.append("%s: %s%s" % [customer["id"], recipe["short_name"], face])
+	if parts.is_empty():
+		return _next_customer_label()
+	return " · ".join(parts)
+
+
 func _draw_menu_background() -> void:
 	_add_color_bg(Color("#0f4c5c"))
 	_add_texture(WATER_TEXTURE, Vector2(0.5, 0.78), Vector2(3.5, 1.1), 0.45)
@@ -778,61 +1015,142 @@ func _draw_fishing_background() -> void:
 	_add_full_texture(FISHING_SEASCAPE_TEXTURE)
 	_draw_animated_water()
 	_add_scene_band(Color(0.14, 0.11, 0.16, 0.42), 0.84, 1.0)
-	_add_texture(BOAT_TEXTURE, BOAT_ANCHOR, Vector2(2.0, 2.0), 1.0)
+	var boat_bob: float = sin(_now_seconds() * 1.8) * 0.006
+	var boat_tilt: float = sin(_now_seconds() * 1.35) * 1.1
+	if fishing_phase == "bite":
+		boat_tilt += sin(_now_seconds() * 16.0) * 1.2
+	_add_texture(BOAT_TEXTURE, BOAT_ANCHOR + Vector2(0.0, boat_bob), Vector2(2.0, 2.0), 1.0, boat_tilt)
 	_draw_fisherman()
 	var fish_texture: Texture2D = FISH_PREMIUM_TEXTURE if fishing_phase == "bite" else FISH_NORMAL_TEXTURE
-	var fish_alpha := 0.9 if fishing_phase == "bite" else 0.34
+	var fish_alpha: float = 0.9 if fishing_phase == "bite" else 0.34
 	var fish_bob := sin(_now_seconds() * 3.4) * 0.006
 	_add_texture(fish_texture, FISH_ANCHOR + Vector2(0.0, fish_bob), Vector2(0.78, 0.78), fish_alpha)
-	_draw_fishing_lure()
+	if not _fishing_actor_frame_has_tackle():
+		_draw_fishing_lure()
 
 
 func _draw_fisherman() -> void:
-	var texture := FISHERMAN_IDLE_TEXTURE
-	var frame := 1
-	if fishing_phase == "bite":
-		texture = FISHERMAN_HOOK_TEXTURE
-		frame = 3
-	elif fishing_phase == "breath" or fishing_phase == "waiting":
-		texture = FISHERMAN_HOOK_TEXTURE
-		frame = 1 if int(_now_seconds() * 8.0) % 2 == 0 else 2
+	var fisher_texture: Texture2D = _current_fishing_actor_texture()
+	var time: float = _now_seconds()
+	var anchor: Vector2 = Vector2(0.45, 0.665)
+	var scale: Vector2 = Vector2(1.82, 2.35)
+	var rotation: float = 0.0
+	var alpha: float = 1.0
 
-	_add_sprite_frame(texture, frame, FISHERMAN_ANCHOR, Vector2(0.92, 0.92), 1.0)
+	if fishing_phase == "idle":
+		var reaction_elapsed: float = time - last_catch_started_at
+		if reaction_elapsed <= CATCH_REACTION_SECONDS:
+			var reaction_ratio: float = clampf(reaction_elapsed / CATCH_REACTION_SECONDS, 0.0, 1.0)
+			var hop: float = sin(reaction_ratio * PI) * 0.038
+			if last_catch_result == "perfect":
+				anchor += Vector2(sin(time * 16.0) * 0.004, -hop * 0.45)
+				scale += Vector2(0.1, 0.18) * sin(reaction_ratio * PI)
+				rotation = sin(time * 18.0) * 2.4
+			elif last_catch_result == "good":
+				anchor += Vector2(0.0, -hop * 0.35)
+				rotation = sin(time * 12.0) * 1.4
+			elif last_catch_result == "early" or last_catch_result == "fail":
+				anchor += Vector2(0.0, hop * 0.25)
+				scale += Vector2(0.04, -0.1) * sin(reaction_ratio * PI)
+				rotation = -3.0 * sin(reaction_ratio * PI)
+		else:
+			anchor += Vector2(0.0, sin(time * 2.2) * 0.004)
+			scale += Vector2(0.025, -0.035) * sin(time * 2.2)
+	elif fishing_phase == "waiting":
+		var sway: float = sin((time - lure_motion_started_at) * 5.0)
+		anchor += Vector2(sway * 0.004, sin(time * 4.0) * 0.004)
+		rotation = sway * 1.7
+	elif fishing_phase == "breath":
+		var breath_ratio: float = _lure_motion_ratio()
+		var recoil: float = sin(breath_ratio * PI)
+		anchor += Vector2(-0.012 * recoil, -0.01 * recoil)
+		scale += Vector2(0.08, -0.08) * recoil
+		rotation = -5.0 * recoil
+	elif fishing_phase == "bite":
+		var bite_ratio: float = clampf(_bite_elapsed() / GOOD_WINDOW_SECONDS, 0.0, 1.0)
+		var shake: float = sin(time * 34.0) * (1.0 - bite_ratio)
+		anchor += Vector2(0.014 + shake * 0.004, -0.015)
+		scale += Vector2(-0.04, 0.08)
+		rotation = 7.0 + shake * 2.0
+
+	_add_texture(fisher_texture, anchor, scale, alpha, rotation)
+
+
+func _current_fishing_actor_texture() -> Texture2D:
+	if fishing_phase == "waiting":
+		if _now_seconds() - cast_started_at < 0.65:
+			return FISHING_CAST_TEXTURE
+		return FISHING_WAIT_TEXTURE
+	if fishing_phase == "breath":
+		var breath_index: int = max(1, lure_breaths_total - lure_breaths_remaining + 1)
+		match breath_index:
+			1:
+				return FISHING_BREATH_1_TEXTURE
+			2:
+				return FISHING_BREATH_2_TEXTURE
+			_:
+				return FISHING_BREATH_3_TEXTURE
+	if fishing_phase == "bite":
+		return FISHING_BITE_TEXTURE
+	if _now_seconds() - last_catch_started_at <= CATCH_REACTION_SECONDS and (last_catch_result == "perfect" or last_catch_result == "good"):
+		return FISHING_PULL_TEXTURE
+	return FISHING_REST_TEXTURE
+
+
+func _fishing_actor_frame_has_tackle() -> bool:
+	return true
 
 
 func _draw_fishing_lure() -> void:
 	var lure_anchor := LURE_SURFACE_ANCHOR
 	var lure_texture := LURE_TEXTURE
-	var lure_scale := Vector2(0.34, 0.34)
-	var ripple_alpha := 0.35
+	var lure_scale: Vector2 = Vector2(0.34, 0.34)
+	var ripple_alpha: float = 0.35
+	var lure_rotation: float = 0.0
 
 	if fishing_phase == "waiting":
 		var bob := sin((_now_seconds() - lure_motion_started_at) * 8.0) * 0.008
 		lure_anchor.y += bob
+		lure_rotation = sin(_now_seconds() * 5.0) * 3.0
 	elif fishing_phase == "breath":
 		var ratio := _lure_motion_ratio()
 		lure_anchor.y += sin(ratio * PI) * 0.045
-		lure_scale = Vector2(0.38, 0.38)
+		lure_anchor.x += sin(ratio * PI * 2.0) * 0.008
+		lure_scale = Vector2(0.38, 0.38) + Vector2.ONE * sin(ratio * PI) * 0.05
 		ripple_alpha = 0.75
+		lure_rotation = sin(ratio * PI * 2.0) * 10.0
 	elif fishing_phase == "bite":
-		lure_anchor.y += 0.055
+		var bite_pulse: float = sin(_now_seconds() * 32.0)
+		lure_anchor.y += 0.055 + bite_pulse * 0.004
+		lure_anchor.x += bite_pulse * 0.004
 		lure_texture = LURE_SINK_TEXTURE
-		lure_scale = Vector2(0.42, 0.42)
+		lure_scale = Vector2(0.42, 0.42) + Vector2.ONE * absf(bite_pulse) * 0.045
 		ripple_alpha = 1.0
+		lure_rotation = bite_pulse * 12.0
 
 	if fishing_phase != "idle":
 		_draw_fishing_line(lure_anchor)
 		_add_ripple(lure_anchor + Vector2(0.0, 0.018), ripple_alpha)
-		_add_texture(lure_texture, lure_anchor, lure_scale, 1.0)
+		_add_texture(lure_texture, lure_anchor, lure_scale, 1.0, lure_rotation)
 		if fishing_phase == "bite":
-			_add_texture(BITE_SPLASH_TEXTURE, lure_anchor + Vector2(0.0, -0.018), Vector2(0.58, 0.58), 1.0)
+			var splash_scale: Vector2 = Vector2(0.58, 0.58) + Vector2.ONE * absf(sin(_now_seconds() * 20.0)) * 0.1
+			_add_texture(BITE_SPLASH_TEXTURE, lure_anchor + Vector2(0.0, -0.018), splash_scale, 1.0, sin(_now_seconds() * 12.0) * 6.0)
 
 
 func _draw_fishing_line(lure_anchor: Vector2) -> void:
 	var viewport_size := get_viewport_rect().size
 	var start := FISHING_ROD_TIP_ANCHOR * viewport_size
 	var end := lure_anchor * viewport_size
-	_add_pixel_line([start, end], Color("#1d1b1b"), 1.6)
+	var mid: Vector2 = (start + end) * 0.5
+	var sag: float = 34.0
+	var jitter: float = 0.0
+	if fishing_phase == "bite":
+		sag = 8.0
+		jitter = sin(_now_seconds() * 42.0) * 8.0
+	elif fishing_phase == "breath":
+		sag = 18.0 + sin(_now_seconds() * 18.0) * 5.0
+	mid += Vector2(jitter, sag)
+	_add_pixel_line([start, mid, end], Color("#1d1b1b"), 1.8)
 
 
 func _add_pixel_line(points: Array, color: Color, width: float) -> void:
@@ -873,10 +1191,101 @@ func _draw_animated_water() -> void:
 
 
 func _draw_restaurant_background() -> void:
-	_add_color_bg(Color("#21413f"))
-	_add_bottom_band(Color("#9b5f37"), 190)
-	var sign := _center_text("La Pochita Stone", 32, Color("#f6c177"), Vector2(0.5, 0.14))
-	background_layer.add_child(sign)
+	_add_full_texture(_current_restaurant_texture())
+	_add_scene_band(Color(0.02, 0.05, 0.06, 0.24), 0.0, 0.18)
+	_add_scene_band(Color(0.02, 0.05, 0.06, 0.18), 0.82, 1.0)
+	var cook_time: float = _now_seconds()
+	var cook_anchor: Vector2 = _restaurant_cook_anchor() + Vector2(sin(cook_time * 1.6) * 0.003, sin(cook_time * 2.1) * 0.004)
+	var cook_scale: Vector2 = Vector2(1.25, 2.45) + Vector2(0.025, -0.035) * sin(cook_time * 2.1)
+	var cook_rotation: float = sin(cook_time * 1.35) * 1.1
+	_add_texture(_current_cook_texture(), cook_anchor, cook_scale, 1.0, cook_rotation)
+	_draw_seated_customers()
+
+
+func _current_restaurant_texture() -> Texture2D:
+	if int(save.get("upgrade_level", 0)) >= 1:
+		return RESTAURANT_UPGRADED_TEXTURE
+	return RESTAURANT_BASE_TEXTURE
+
+
+func _restaurant_is_upgraded() -> bool:
+	return int(save.get("upgrade_level", 0)) >= 1
+
+
+func _restaurant_cook_anchor() -> Vector2:
+	if _restaurant_is_upgraded():
+		return Vector2(0.18, 0.69)
+	return Vector2(0.23, 0.66)
+
+
+func _restaurant_table_positions() -> Array:
+	if _restaurant_is_upgraded():
+		return [
+			Vector2(0.26, 0.38),
+			Vector2(0.42, 0.39),
+			Vector2(0.62, 0.39),
+			Vector2(0.78, 0.39)
+		]
+	return [
+		Vector2(0.38, 0.42),
+		Vector2(0.67, 0.42),
+		Vector2(0.34, 0.49),
+		Vector2(0.72, 0.49)
+	]
+
+
+func _client_placeholder_texture(customer_id: int) -> Texture2D:
+	match ((customer_id - 1) % 4) + 1:
+		1:
+			return CLIENT_PLACEHOLDER_1_TEXTURE
+		2:
+			return CLIENT_PLACEHOLDER_2_TEXTURE
+		3:
+			return CLIENT_PLACEHOLDER_3_TEXTURE
+		_:
+			return CLIENT_PLACEHOLDER_4_TEXTURE
+
+
+func _draw_seated_customers() -> void:
+	var positions: Array = _restaurant_table_positions()
+	var seated_index := 0
+	var now: float = Time.get_ticks_msec() / 1000.0
+	for customer_item in restaurant.get("customers", []):
+		var customer: Dictionary = customer_item as Dictionary
+		if customer["state"] == "waiting_to_arrive":
+			continue
+		var base_position: Vector2 = positions[seated_index % positions.size()]
+		var offset: Vector2 = Vector2(0.018 * float(seated_index / positions.size()), 0.0)
+		var customer_position: Vector2 = base_position + offset
+		var customer_id: int = int(customer["id"])
+		_add_texture(_client_placeholder_texture(customer_id), customer_position, Vector2(0.42, 0.62), 1.0)
+		_add_customer_table_label(customer, customer_position + Vector2(0.0, -0.055), now)
+		seated_index += 1
+
+
+func _add_customer_table_label(customer: Dictionary, anchor: Vector2, now: float) -> void:
+	var recipe: Dictionary = _get_recipe(customer["order_recipe_id"])
+	var status_text := ""
+	if customer["served"]:
+		status_text = "%s %s" % [recipe["short_name"], _face_for(customer["satisfaction"])]
+	else:
+		var patience_left: int = max(0, ceili(customer["patience_seconds"] - (now - customer["arrived_at"])))
+		status_text = "%s · %ss" % [recipe["short_name"], patience_left]
+
+	var container := CenterContainer.new()
+	container.anchor_left = anchor.x
+	container.anchor_right = anchor.x
+	container.anchor_top = anchor.y
+	container.anchor_bottom = anchor.y
+	container.offset_left = -58
+	container.offset_right = 58
+	container.offset_top = -22
+	container.offset_bottom = 22
+	background_layer.add_child(container)
+
+	var chip := _text_panel(status_text, 11, Color("#e9f7ef"), true)
+	chip.custom_minimum_size = Vector2(108, 32)
+	container.add_child(chip)
 
 
 func _draw_summary_background() -> void:
@@ -887,21 +1296,106 @@ func _draw_summary_background() -> void:
 
 
 func _draw_restaurant_status() -> void:
+	if _has_visible_restaurant_customers():
+		return
+	_draw_waiting_customer_hint()
+	return
+
 	var overlay := HBoxContainer.new()
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.anchor_left = 0.28
+	overlay.anchor_right = 0.96
+	overlay.anchor_top = 0.31
+	overlay.anchor_bottom = 0.49
 	overlay.alignment = BoxContainer.ALIGNMENT_CENTER
-	overlay.add_theme_constant_override("separation", 28)
+	overlay.add_theme_constant_override("separation", 12)
 	background_layer.add_child(overlay)
 
+	var visible_count := 0
+	var now: float = Time.get_ticks_msec() / 1000.0
 	for customer_item in restaurant.get("customers", []):
 		var customer: Dictionary = customer_item as Dictionary
+		if customer["state"] == "waiting_to_arrive":
+			continue
+		visible_count += 1
 		var card := _status_card()
 		var card_content := card.get_node("Content") as VBoxContainer
 		var recipe: Dictionary = _get_recipe(customer["order_recipe_id"])
 		var face: String = "?" if not customer["served"] else _face_for(customer["satisfaction"])
-		card_content.add_child(_label(face, 22, Color("#1d1b1b"), true))
+		card_content.add_child(_label("Cliente %s" % customer["id"], 12, Color("#08303b"), true))
+		card_content.add_child(_label(face, 20, Color("#1d1b1b"), true))
 		card_content.add_child(_label(recipe["short_name"], 13, Color("#08303b"), true))
+		if customer["state"] == "present":
+			card_content.add_child(_label("%ss" % max(0, ceili(customer["patience_seconds"] - (now - customer["arrived_at"]))), 12, Color("#9b5f37"), true))
 		overlay.add_child(card)
+
+	if visible_count == 0:
+		var waiting := _text_panel(_next_customer_label(), 16, Color("#e9f7ef"), true)
+		waiting.custom_minimum_size = Vector2(280, 70)
+		overlay.add_child(waiting)
+
+
+func _has_visible_restaurant_customers() -> bool:
+	for customer_item in restaurant.get("customers", []):
+		var customer: Dictionary = customer_item as Dictionary
+		if customer["state"] != "waiting_to_arrive":
+			return true
+	return false
+
+
+func _draw_waiting_customer_hint() -> void:
+	var container := CenterContainer.new()
+	container.anchor_left = 0.0
+	container.anchor_right = 1.0
+	container.anchor_top = 0.38
+	container.anchor_bottom = 0.38
+	container.offset_left = 18
+	container.offset_right = -18
+	background_layer.add_child(container)
+
+	var waiting := _text_panel(_next_customer_label(), 16, Color("#e9f7ef"), true)
+	waiting.custom_minimum_size = Vector2(280, 58)
+	container.add_child(waiting)
+
+
+func _draw_stove_status() -> void:
+	var shelf := HBoxContainer.new()
+	shelf.anchor_left = 0.3
+	shelf.anchor_right = 0.95
+	shelf.anchor_top = 0.54
+	shelf.anchor_bottom = 0.67
+	shelf.alignment = BoxContainer.ALIGNMENT_CENTER
+	shelf.add_theme_constant_override("separation", 10)
+	background_layer.add_child(shelf)
+
+	var now: float = Time.get_ticks_msec() / 1000.0
+	for stove_item in restaurant.get("stoves", []):
+		var stove: Dictionary = stove_item as Dictionary
+		var card := _stove_card()
+		var content := card.get_node("Content") as VBoxContainer
+		content.add_child(_label("Hornilla %s" % (stove["id"] + 1), 12, Color("#e9f7ef"), true))
+		if stove["recipe_id"] == "":
+			content.add_child(_label("Libre", 15, Color("#f6c177"), true))
+		else:
+			var recipe: Dictionary = _get_recipe(stove["recipe_id"])
+			content.add_child(_label(recipe["short_name"], 14, Color("#f6c177"), true))
+			var state: String = "Listo" if stove["ready"] else "%ss" % max(0, ceili(stove["ready_at"] - now))
+			content.add_child(_label(state, 13, Color("#e9f7ef"), true))
+		shelf.add_child(card)
+
+
+func _current_cook_texture() -> Texture2D:
+	var frame_index: int = int(_now_seconds() * 4.0) % 2
+	if _has_active_stoves():
+		return COOK_WALK_1_TEXTURE if frame_index == 0 else COOK_WALK_2_TEXTURE
+	return COOK_IDLE_1_TEXTURE if frame_index == 0 else COOK_IDLE_2_TEXTURE
+
+
+func _has_active_stoves() -> bool:
+	for stove_item in restaurant.get("stoves", []):
+		var stove: Dictionary = stove_item as Dictionary
+		if stove["recipe_id"] != "":
+			return true
+	return false
 
 
 func _face_for(satisfaction: String) -> String:
@@ -949,10 +1443,10 @@ func _add_ripple(anchor: Vector2, alpha: float) -> void:
 	var ring := Line2D.new()
 	ring.width = 3.0
 	ring.default_color = Color(0.92, 1.0, 0.96, alpha)
-	var center := Vector2(anchor.x * viewport_size.x, anchor.y * viewport_size.y)
+	var center: Vector2 = Vector2(anchor.x * viewport_size.x, anchor.y * viewport_size.y)
 	var radius := 22.0 + (alpha * 18.0)
 	for index in range(18):
-		var angle := (TAU / 17.0) * index
+		var angle: float = (TAU / 17.0) * index
 		ring.add_point(center + Vector2(cos(angle) * radius, sin(angle) * radius * 0.36))
 	background_layer.add_child(ring)
 
@@ -974,13 +1468,13 @@ func _add_texture(texture: Texture2D, anchor: Vector2, scale: Vector2, alpha: fl
 	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	rect.modulate.a = alpha
-	rect.pivot_offset = Vector2(64, 64)
 	rect.rotation_degrees = rotation_degrees_value
 	rect.anchor_left = anchor.x
 	rect.anchor_right = anchor.x
 	rect.anchor_top = anchor.y
 	rect.anchor_bottom = anchor.y
 	rect.custom_minimum_size = Vector2(160, 120) * scale
+	rect.pivot_offset = rect.custom_minimum_size * 0.5
 	rect.offset_left = -rect.custom_minimum_size.x / 2.0
 	rect.offset_right = rect.custom_minimum_size.x / 2.0
 	rect.offset_top = -rect.custom_minimum_size.y / 2.0
@@ -989,9 +1483,10 @@ func _add_texture(texture: Texture2D, anchor: Vector2, scale: Vector2, alpha: fl
 
 
 func _add_sprite_frame(texture: Texture2D, frame: int, anchor: Vector2, scale: Vector2, alpha: float) -> void:
+	var frame_size: Vector2 = Vector2(48, 48)
 	var atlas := AtlasTexture.new()
 	atlas.atlas = texture
-	atlas.region = Rect2(FISHERMAN_FRAME_SIZE.x * frame, 0.0, FISHERMAN_FRAME_SIZE.x, FISHERMAN_FRAME_SIZE.y)
+	atlas.region = Rect2(frame_size.x * frame, 0.0, frame_size.x, frame_size.y)
 	_add_texture(atlas, anchor, scale, alpha)
 
 
@@ -1214,8 +1709,21 @@ func _chip(text: String) -> PanelContainer:
 
 func _status_card() -> PanelContainer:
 	var card := PanelContainer.new()
-	card.custom_minimum_size = Vector2(118, 82)
+	card.custom_minimum_size = Vector2(126, 104)
 	card.add_theme_stylebox_override("panel", _light_panel_style())
+
+	var content := VBoxContainer.new()
+	content.name = "Content"
+	content.alignment = BoxContainer.ALIGNMENT_CENTER
+	content.add_theme_constant_override("separation", 4)
+	card.add_child(content)
+	return card
+
+
+func _stove_card() -> PanelContainer:
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(112, 88)
+	card.add_theme_stylebox_override("panel", _chip_style())
 
 	var content := VBoxContainer.new()
 	content.name = "Content"
