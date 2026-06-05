@@ -89,7 +89,7 @@ El juego es un prototipo de gestión y pesca ambientado en un restaurante del pu
    - Los pescados obtenidos pasan al inventario del día.
 
 3. **Restaurante**
-   - El jugador cocina recetas usando pescado normal, pescado premium y aliño temporal.
+   - El jugador cocina recetas usando pescado normal y pescado premium.
    - Hay 4 hornillas.
    - Hay 4 clientes por día.
    - Los clientes tienen paciencia limitada.
@@ -125,9 +125,9 @@ La pesca está inspirada en la lógica de tensión y reacción rápida de Hades,
 
 ### Recompensas
 
-- **Pesca perfecta:** agrega 1 pescado premium.
-- **Pesca buena:** agrega 1 pescado normal.
-- **Pesca fallida o jalada anticipada:** no agrega pescado.
+- **Pesca perfecta:** agrega 5 pescados; cada uno tiene 60% de probabilidad de ser premium y 40% de ser normal.
+- **Pesca buena:** agrega 3 pescados; cada uno tiene 40% de probabilidad de ser premium y 60% de ser normal.
+- **Pesca fallida o jalada anticipada:** agrega 1 pescado normal para facilitar la demo.
 
 ### Corrección reciente
 
@@ -142,13 +142,11 @@ Además, la pantalla ya no se redibuja automáticamente durante la fase real de 
 - Monedas iniciales: `30`
 - Costo de renta del barco: `10`
 - Lances por día: `5`
-- Aliño temporal por día: `2`
 
 ### Inventario del día
 
 - `normal_fish`
 - `premium_fish`
-- `placeholder_spice`
 
 El inventario se reinicia cada día.
 
@@ -162,7 +160,7 @@ El inventario se reinicia cada día.
 
 ### Encebollado Pochita
 
-- Requiere: 1 pescado normal y 1 aliño temporal.
+- Requiere: 2 pescados normales.
 - Tiempo de cocción: `5.0s`.
 - Precio: `24` monedas.
 
@@ -189,8 +187,8 @@ La satisfacción depende de:
 
 - Nivel 1: cocina 10% mas rapido y clientes con +2.5s de paciencia.
 - Nivel 2: mantiene mejoras de restaurante, agrega 1 lance diario y amplia la ventana de pesca buena/perfecta.
-- Nivel 3: agrega 1 alino diario y un bono moderado de precio por fama.
-- Niveles superiores: escalan de forma acotada hasta 30% de cocina, +7.5s de paciencia, 7 lances, +2 alinos y hasta +24% de precios.
+- Nivel 3: agrega un bono moderado de precio por fama.
+- Niveles superiores: escalan de forma acotada hasta 30% de cocina, +7.5s de paciencia, 7 lances y hasta +24% de precios.
 
 El costo cambia de `50 + nivel * 25` a `50 + nivel * 30 + max(0, nivel - 2) * 15` para compensar los bonos de produccion.
 
@@ -203,7 +201,7 @@ El boton `Continuar` restaura:
 - Estado global persistente: monedas, estrellas, mejor nivel, recetas y mejor dia.
 - Estado del dia: inventario, bote, lances restantes y resumen.
 - Fase actual: pesca, seleccion de menu, restaurante o resumen.
-- Pesca activa: fase del senuelo, timers restantes, ventana de mordida y ultimo resultado.
+- Pesca activa: fase del señuelo, timers restantes, ventana de mordida y último resultado.
 - Restaurante: menu elegido, hornillas, platos listos/en coccion, clientes, llegada, espera, satisfaccion y pedidos.
 
 Los tiempos de hornillas, clientes y pesca se guardan como tiempos restantes o transcurridos para que sigan siendo validos despues de cerrar y abrir el juego.
@@ -320,7 +318,7 @@ Actualmente muestra:
 
 - Probar el juego directamente en Godot y ajustar posiciones visuales con captura real.
 - Separar el script principal en sistemas más pequeños: pesca, restaurante, guardado y UI.
-- Reemplazar `placeholder_spice` por un ingrediente real del mundo del juego.
+- Agregar más recetas que combinen pescado normal y premium sin depender de ingredientes no obtenibles.
 - Añadir sonido para respiración falsa, hundimiento real, pesca perfecta y pesca fallida.
 - Añadir animación más clara para el momento exacto de mordida.
 - Crear una pantalla de tutorial corta para enseñar que no se debe jalar durante respiraciones falsas.

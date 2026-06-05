@@ -4,7 +4,11 @@ const SAVE_PATH := "user://la_pochita_stone_save.json"
 const STARTING_COINS := 30
 const BOAT_RENTAL_COST := 10
 const DAILY_CASTS := 5
-const PLACEHOLDER_INGREDIENTS_PER_DAY := 2
+const PERFECT_CATCH_FISH_COUNT := 5
+const GOOD_CATCH_FISH_COUNT := 3
+const FAILED_CATCH_FISH_COUNT := 1
+const PERFECT_CATCH_PREMIUM_CHANCE := 0.60
+const GOOD_CATCH_PREMIUM_CHANCE := 0.40
 const PERFECT_WINDOW_SECONDS := 0.45
 const GOOD_WINDOW_SECONDS := 0.60
 const LURE_BREATH_SECONDS := 0.58
@@ -67,15 +71,15 @@ const CATCH_REACTION_SECONDS := 1.15
 const TUTORIAL_STEPS := [
 	{
 		"title": "Pesca: no todo movimiento es mordida",
-		"body": "Cuando el senuelo respira, el agua se mueve pero el pez todavia no mordio. Si jalas en una respiracion falsa, pierdes el lance."
+		"body": "Cuando el señuelo respira, el agua se mueve pero el pez todavía no mordió. Si jalas en una respiración falsa, el lance falla."
 	},
 	{
 		"title": "Mordida real: jala al hundirse",
-		"body": "La mordida real ocurre cuando el senuelo se hunde y aparece el aviso de jalar. Reacciona rapido: perfecto da pescado premium; bueno da pescado normal."
+		"body": "La mordida real ocurre cuando el señuelo se hunde y aparece el aviso de jalar. Reacciona rápido: perfecto da 5 pescados y buena pesca da 3."
 	},
 	{
-		"title": "Cocina: arma el menu del dia",
-		"body": "Antes de abrir la cocina eliges hasta 3 platos para vender. Los clientes solo pediran recetas de ese menu, asi que elige segun los pescados y alinos que tengas."
+		"title": "Cocina: arma el menú del día",
+		"body": "Antes de abrir la cocina eliges hasta 3 platos para vender. Los clientes solo pedirán recetas de ese menú, así que elige según tus pescados normales y premium."
 	}
 ]
 
@@ -92,10 +96,7 @@ const RECIPES := [
 		"name": "Encebollado Pochita",
 		"short_name": "Encebollado",
 		"cook_seconds": 5.0,
-		"ingredients": [
-			{"item": "fish", "quality": "normal", "amount": 1},
-			{"item": "placeholder_spice", "amount": 1}
-		]
+		"ingredients": [{"item": "fish", "quality": "normal", "amount": 2}]
 	},
 	{
 		"id": "pargo_premium",
@@ -342,8 +343,7 @@ func _create_new_day() -> Dictionary:
 	return {
 		"inventory": {
 			"normal_fish": 0,
-			"premium_fish": 0,
-			"placeholder_spice": _get_daily_spices()
+			"premium_fish": 0
 		},
 		"boat_rented": false,
 		"casts_left": _get_daily_casts(),
@@ -376,7 +376,7 @@ func _continue_saved_run() -> void:
 			_show_menu_setup()
 		"restaurant":
 			if restaurant.is_empty():
-				message = "Partida recuperada; vuelve a elegir el menu del dia."
+				message = "Partida recuperada; vuelve a elegir el menú del día."
 				_show_menu_setup()
 			else:
 				_show_restaurant()
@@ -522,11 +522,11 @@ func _show_tutorial(step := 0) -> void:
 func _tutorial_hint_panel() -> PanelContainer:
 	var hint := ""
 	if tutorial_step == 0:
-		hint = "Clave: durante la respiracion falsa, espera. El boton Jalar castiga la ansiedad."
+		hint = "Clave: durante la respiración falsa, espera. El botón Jalar castiga la ansiedad."
 	elif tutorial_step == 1:
 		hint = "Clave: cuando se hunde, jala de inmediato. La ventana perfecta es corta."
 	else:
-		hint = "Clave: el menu filtra los pedidos. No vendas platos que no podras cocinar."
+		hint = "Clave: el menú filtra los pedidos. No vendas platos que no podrás cocinar."
 	return _text_panel(hint, 14, Color("#f6c177"), true)
 
 
@@ -544,7 +544,7 @@ func _skip_tutorial() -> void:
 func _finish_tutorial() -> void:
 	save["tutorial_seen"] = true
 	tutorial_step = TUTORIAL_STEPS.size() - 1
-	message = "Renta un bote, mira el senuelo y jala solo cuando se hunda."
+	message = "Renta un bote, mira el señuelo y jala solo cuando se hunda."
 	_show_fishing()
 	_persist_save()
 
@@ -576,8 +576,8 @@ func _show_fishing() -> void:
 	_reset_screen()
 	_draw_fishing_background()
 	_add_top_bar([
-		"Monedas %s" % save["coins"],
-		"Normal %s · Premium %s" % [day["inventory"]["normal_fish"], day["inventory"]["premium_fish"]],
+		"$%s" % save["coins"],
+		_inventory_chip_text(),
 		"Lances %s/%s" % [day["casts_left"], _get_daily_casts()]
 	])
 	_add_toast(message)
@@ -659,7 +659,7 @@ func _play_rent_boat_animation() -> void:
 		_add_rent_boat_fallback_animation(content)
 		rent_boat_animation_timer.wait_time = RENT_BOAT_ANIMATION_FALLBACK_SECONDS
 
-	var caption := _label("Cuando termine, lanza la cana y espera la mordida real.", 15, Color("#e9f7ef"))
+	var caption := _label("Cuando termine, lanza la caña y espera la mordida real.", 15, Color("#e9f7ef"))
 	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	content.add_child(caption)
 
@@ -813,32 +813,68 @@ func _finish_catch(result: String) -> void:
 	fishing_redraw_elapsed = 0.0
 	day["casts_left"] = max(0, day["casts_left"] - 1)
 
+	var catch_loot := _grant_catch_loot(result)
 	if result == "perfect":
-		day["inventory"]["premium_fish"] += 1
 		day["summary"]["perfect_catches"] += 1
 	elif result == "good":
-		day["inventory"]["normal_fish"] += 1
 		day["summary"]["good_catches"] += 1
 	else:
 		day["summary"]["failed_catches"] += 1
 
-	message = _catch_result_label(result)
+	message = _catch_result_label(result, catch_loot)
 	if day["casts_left"] <= 0:
-		message += " Último lance del día."
+		message = "%s Último lance del día." % message
 	_show_fishing()
 	_persist_save()
 
 
-func _catch_result_label(result: String) -> String:
+func _grant_catch_loot(result: String) -> Dictionary:
+	var total_fish := FAILED_CATCH_FISH_COUNT
+	var premium_chance := 0.0
+	if result == "perfect":
+		total_fish = PERFECT_CATCH_FISH_COUNT
+		premium_chance = PERFECT_CATCH_PREMIUM_CHANCE
+	elif result == "good":
+		total_fish = GOOD_CATCH_FISH_COUNT
+		premium_chance = GOOD_CATCH_PREMIUM_CHANCE
+
+	var normal_count := 0
+	var premium_count := 0
+	for index in range(total_fish):
+		if premium_chance > 0.0 and rng.randf() < premium_chance:
+			premium_count += 1
+		else:
+			normal_count += 1
+
+	day["inventory"]["normal_fish"] += normal_count
+	day["inventory"]["premium_fish"] += premium_count
+	return {"normal": normal_count, "premium": premium_count}
+
+
+func _catch_result_label(result: String, catch_loot: Dictionary) -> String:
+	var loot_text := _catch_loot_text(catch_loot)
 	match result:
 		"perfect":
-			return "Pesca perfecta: pescado premium."
+			return "Pesca perfecta: %s." % loot_text
 		"good":
-			return "Buena pesca: pescado normal."
+			return "Buena pesca: %s." % loot_text
 		"early":
-			return "Pesca fallida: jalaste antes de que se hundiera el señuelo."
+			return "Pesca fallida: jalaste antes de que se hundiera el señuelo. %s." % loot_text
 		_:
-			return "La pesca se escapó."
+			return "La pesca se escapó, pero rescatas %s." % loot_text
+
+
+func _catch_loot_text(catch_loot: Dictionary) -> String:
+	var parts: Array = []
+	var premium_count := int(catch_loot.get("premium", 0))
+	var normal_count := int(catch_loot.get("normal", 0))
+	if premium_count > 0:
+		parts.append("+%s premium" % premium_count)
+	if normal_count > 0:
+		parts.append("+%s normal" % normal_count)
+	if parts.is_empty():
+		return "sin pesca"
+	return ", ".join(parts)
 
 
 func _now_seconds() -> float:
@@ -870,16 +906,15 @@ func _show_menu_setup() -> void:
 	_reset_screen()
 	_draw_restaurant_background()
 	_add_top_bar([
-		"Monedas: %s" % save["coins"],
-		"Inventario: %s normal · %s premium · %s aliños" % [day["inventory"]["normal_fish"], day["inventory"]["premium_fish"], day["inventory"]["placeholder_spice"]],
-		"Menú elegido: %s/%s" % [selected_day_menu.size(), MAX_DAY_MENU_RECIPES]
+		"$%s" % save["coins"],
+		_inventory_chip_text(),
+		"Menú %s/%s" % [selected_day_menu.size(), MAX_DAY_MENU_RECIPES]
 	])
 	_add_toast(message)
 
-	var panel := _bottom_panel(700)
-	panel.add_child(_label("Menú del día", 24, Color("#f6c177"), true))
-	panel.add_child(_text_panel("Elige hasta 3 platos. Cocinar consume pescado; servir clientes te da monedas.", 15, Color("#e9f7ef"), true))
-	panel.add_child(_small_stat("Mejora", _upgrade_effect_summary()))
+	var panel := _bottom_panel(620)
+	panel.add_child(_label("Menú del día", 22, Color("#f6c177"), true))
+	panel.add_child(_text_panel("Elige hasta 3 platos. Cocina pescado y sirve rápido.", 13, Color("#e9f7ef"), true))
 
 	var recipe_grid := _button_row()
 	for recipe_item in RECIPES:
@@ -903,20 +938,20 @@ func _recipe_menu_card(recipe: Dictionary) -> Button:
 	var selected_mark := "[x] " if selected else ""
 
 	var button := Button.new()
-	button.text = "%s%s\nCosto: %s\nVenta: +%s monedas\n%s" % [
+	button.text = "%s%s\n%s | $%s\n%s" % [
 		selected_mark,
 		str(recipe["name"]),
 		_recipe_cost_text(recipe),
 		_get_dish_price(recipe_id),
 		status_text
 	]
-	button.custom_minimum_size = Vector2(0, 126)
+	button.custom_minimum_size = Vector2(0, 96)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.add_theme_stylebox_override("normal", _button_style(variant, false, 0.88 if not can_cook and not selected else 1.0))
 	button.add_theme_stylebox_override("hover", _button_style(variant, false, 1.05))
 	button.add_theme_stylebox_override("pressed", _button_style(variant, false, 0.92))
 	button.add_theme_color_override("font_color", Color("#1d1b1b") if selected else Color("#e9f7ef"))
-	button.add_theme_font_size_override("font_size", 14)
+	button.add_theme_font_size_override("font_size", 13)
 	button.clip_text = false
 	button.pressed.connect(Callable(self, "_toggle_day_menu_recipe").bind(recipe_id))
 	return button
@@ -927,9 +962,7 @@ func _recipe_cost_text(recipe: Dictionary) -> String:
 	for ingredient_item in recipe["ingredients"]:
 		var ingredient: Dictionary = ingredient_item as Dictionary
 		var amount := int(ingredient["amount"])
-		if ingredient["item"] == "placeholder_spice":
-			parts.append("%s aliño%s" % [amount, "" if amount == 1 else "s"])
-		elif ingredient.get("quality", "normal") == "premium":
+		if ingredient.get("quality", "normal") == "premium":
 			parts.append("%s pescado premium" % amount)
 		else:
 			parts.append("%s pescado normal" % amount)
@@ -1020,8 +1053,8 @@ func _show_restaurant() -> void:
 	_reset_screen()
 	_draw_restaurant_background()
 	_add_top_bar([
-		"Monedas %s" % save["coins"],
-		"Normal %s · Premium %s · Aliño %s" % [day["inventory"]["normal_fish"], day["inventory"]["premium_fish"], day["inventory"]["placeholder_spice"]],
+		"$%s" % save["coins"],
+		_inventory_chip_text(),
 		"Atendidos %s/4" % day["summary"]["served"]
 	])
 	_add_toast(message)
@@ -1061,15 +1094,15 @@ func _show_restaurant_v2() -> void:
 	_reset_screen()
 	_draw_restaurant_background()
 	_add_top_bar([
-		"Monedas %s" % save["coins"],
-		"Normal %s · Premium %s · Aliño %s" % [day["inventory"]["normal_fish"], day["inventory"]["premium_fish"], day["inventory"]["placeholder_spice"]],
+		"$%s" % save["coins"],
+		_inventory_chip_text(),
 		"Atendidos %s/%s" % [day["summary"]["served"], DAILY_CUSTOMERS]
 	])
 	_add_toast(message)
 	_draw_restaurant_status()
 
-	var panel := _bottom_panel(660)
-	panel.add_child(_label("Cocina del puesto", 22, Color("#f6c177"), true))
+	var panel := _bottom_panel(600)
+	panel.add_child(_label("Cocina del puesto", 20, Color("#f6c177"), true))
 	panel.add_child(_small_stat("Hornillas", _stove_summary()))
 	panel.add_child(_small_stat("Pedidos", _customer_summary()))
 
@@ -1229,8 +1262,8 @@ func _show_summary() -> void:
 	_reset_screen()
 	_draw_summary_background()
 	_add_top_bar([
-		"Monedas %s" % save["coins"],
-		"Estrellas %s" % save["stars"],
+		"$%s" % save["coins"],
+		"* %s" % save["stars"],
 		"Mejora %s" % save["upgrade_level"]
 	])
 	_add_toast(message)
@@ -1294,11 +1327,6 @@ func _get_daily_casts() -> int:
 	return DAILY_CASTS + min(2, floori(float(level) / 2.0))
 
 
-func _get_daily_spices() -> int:
-	var level := _get_upgrade_level()
-	return PLACEHOLDER_INGREDIENTS_PER_DAY + min(2, max(0, level - 2))
-
-
 func _get_cook_seconds(recipe: Dictionary) -> float:
 	var level := _get_upgrade_level()
 	var multiplier: float = 1.0 - min(3, level) * 0.10
@@ -1325,6 +1353,10 @@ func _get_dish_price(recipe_id: String) -> int:
 	return int(round(float(DISH_PRICES[recipe_id]) * (1.0 + fame_bonus)))
 
 
+func _inventory_chip_text() -> String:
+	return "N %s | P %s" % [day["inventory"].get("normal_fish", 0), day["inventory"].get("premium_fish", 0)]
+
+
 func _upgrade_effect_summary() -> String:
 	var level := _get_upgrade_level()
 	if level <= 0:
@@ -1338,8 +1370,6 @@ func _upgrade_effect_summary() -> String:
 		effects.append("+%s lance%s" % [extra_casts, "" if extra_casts == 1 else "s"])
 	if _get_perfect_window_seconds() > PERFECT_WINDOW_SECONDS:
 		effects.append("pesca más estable")
-	if _get_daily_spices() > PLACEHOLDER_INGREDIENTS_PER_DAY:
-		effects.append("+%s aliño" % (_get_daily_spices() - PLACEHOLDER_INGREDIENTS_PER_DAY))
 	var price_bonus := int(round((float(_get_dish_price("ceviche_manta")) / float(DISH_PRICES["ceviche_manta"]) - 1.0) * 100.0))
 	if price_bonus > 0:
 		effects.append("+%s%% precios" % price_bonus)
@@ -1357,10 +1387,7 @@ func _get_recipe(recipe_id: String) -> Dictionary:
 func _can_cook(recipe: Dictionary) -> bool:
 	for ingredient_item in recipe["ingredients"]:
 		var ingredient: Dictionary = ingredient_item as Dictionary
-		if ingredient["item"] == "placeholder_spice":
-			if day["inventory"]["placeholder_spice"] < ingredient["amount"]:
-				return false
-		elif ingredient.get("quality", "normal") == "premium":
+		if ingredient.get("quality", "normal") == "premium":
 			if day["inventory"]["premium_fish"] < ingredient["amount"]:
 				return false
 		elif day["inventory"]["normal_fish"] < ingredient["amount"]:
@@ -1374,9 +1401,7 @@ func _consume_recipe(recipe: Dictionary) -> bool:
 
 	for ingredient_item in recipe["ingredients"]:
 		var ingredient: Dictionary = ingredient_item as Dictionary
-		if ingredient["item"] == "placeholder_spice":
-			day["inventory"]["placeholder_spice"] -= ingredient["amount"]
-		elif ingredient.get("quality", "normal") == "premium":
+		if ingredient.get("quality", "normal") == "premium":
 			day["inventory"]["premium_fish"] -= ingredient["amount"]
 		else:
 			day["inventory"]["normal_fish"] -= ingredient["amount"]
@@ -2031,24 +2056,23 @@ func _center_text(text: String, size: int, color: Color, anchor: Vector2) -> Lab
 func _add_top_bar(items: Array) -> void:
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 16)
-	margin.add_theme_constant_override("margin_right", 16)
-	margin.add_theme_constant_override("margin_top", 14)
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_top", 10)
 	ui_layer.add_child(margin)
 
-	var column := VBoxContainer.new()
-	column.alignment = BoxContainer.ALIGNMENT_BEGIN
-	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	column.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	column.custom_minimum_size = Vector2(maxf(280.0, get_viewport_rect().size.x - 32.0), 0)
-	column.add_theme_constant_override("separation", 8)
-	margin.add_child(column)
+	var row := HFlowContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row.add_theme_constant_override("h_separation", 6)
+	row.add_theme_constant_override("v_separation", 6)
+	margin.add_child(row)
 
 	for item in items:
 		var chip := _chip(str(item))
-		chip.custom_minimum_size = Vector2(0, 40)
-		chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		column.add_child(chip)
+		chip.custom_minimum_size = Vector2(104, 32)
+		chip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		row.add_child(chip)
 
 
 func _add_toast(text: String) -> void:
@@ -2058,14 +2082,14 @@ func _add_toast(text: String) -> void:
 	var container := CenterContainer.new()
 	container.anchor_left = 0.0
 	container.anchor_right = 1.0
-	container.anchor_top = 0.22
-	container.anchor_bottom = 0.22
+	container.anchor_top = 0.18
+	container.anchor_bottom = 0.18
 	container.offset_left = 16
 	container.offset_right = -16
 	ui_layer.add_child(container)
 
-	var toast := _text_panel(text, 15, Color("#e9f7ef"), true)
-	toast.custom_minimum_size = Vector2(maxf(280.0, get_viewport_rect().size.x - 32.0), 58)
+	var toast := _text_panel(text, 14, Color("#e9f7ef"), true)
+	toast.custom_minimum_size = Vector2(maxf(260.0, get_viewport_rect().size.x - 32.0), 48)
 	container.add_child(toast)
 
 
@@ -2134,9 +2158,9 @@ func _fishing_meter_ratio() -> float:
 func _bottom_panel(width := 460) -> VBoxContainer:
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_bottom", 14)
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_bottom", 10)
 	ui_layer.add_child(margin)
 
 	var outer := VBoxContainer.new()
@@ -2150,12 +2174,12 @@ func _bottom_panel(width := 460) -> VBoxContainer:
 	outer.add_child(center)
 
 	var viewport_width: float = get_viewport_rect().size.x
-	var panel_width: float = minf(float(width), maxf(280.0, viewport_width - 28.0))
+	var panel_width: float = minf(float(width), maxf(280.0, viewport_width - 24.0))
 
 	var panel := VBoxContainer.new()
 	panel.custom_minimum_size = Vector2(panel_width, 0)
 	panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	panel.add_theme_constant_override("separation", 10)
+	panel.add_theme_constant_override("separation", 8)
 	panel.add_theme_stylebox_override("panel", _panel_style())
 
 	var panel_container := PanelContainer.new()
@@ -2168,9 +2192,9 @@ func _bottom_panel(width := 460) -> VBoxContainer:
 func _bottom_controls() -> GridContainer:
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 12)
-	margin.add_theme_constant_override("margin_right", 12)
-	margin.add_theme_constant_override("margin_bottom", 14)
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 10)
 	ui_layer.add_child(margin)
 
 	var outer := VBoxContainer.new()
@@ -2182,8 +2206,8 @@ func _bottom_controls() -> GridContainer:
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
 	outer.add_child(grid)
 	return grid
 
@@ -2192,8 +2216,8 @@ func _button_row() -> GridContainer:
 	var row := GridContainer.new()
 	row.columns = 2
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("h_separation", 8)
-	row.add_theme_constant_override("v_separation", 8)
+	row.add_theme_constant_override("h_separation", 6)
+	row.add_theme_constant_override("v_separation", 6)
 	return row
 
 
@@ -2201,13 +2225,13 @@ func _button(text: String, action: Callable, disabled := false, variant := "prim
 	var button := Button.new()
 	button.text = text
 	button.disabled = disabled
-	button.custom_minimum_size = Vector2(0, 56)
+	button.custom_minimum_size = Vector2(0, 48)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.add_theme_stylebox_override("normal", _button_style(variant, disabled))
 	button.add_theme_stylebox_override("hover", _button_style(variant, disabled, 1.08))
 	button.add_theme_stylebox_override("pressed", _button_style(variant, disabled, 0.92))
 	button.add_theme_color_override("font_color", Color("#1d1b1b") if variant == "primary" else Color("#e9f7ef"))
-	button.add_theme_font_size_override("font_size", 16)
+	button.add_theme_font_size_override("font_size", 15)
 	button.clip_text = true
 	button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	if press_on_down:
@@ -2220,7 +2244,7 @@ func _button(text: String, action: Callable, disabled := false, variant := "prim
 func _chip(text: String) -> PanelContainer:
 	var chip := PanelContainer.new()
 	chip.add_theme_stylebox_override("panel", _chip_style())
-	var label := _label(text, 15, Color("#e9f7ef"), true)
+	var label := _label(text, 13, Color("#e9f7ef"), true)
 	label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	label.clip_text = true
 	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -2259,12 +2283,12 @@ func _stove_card() -> PanelContainer:
 
 func _small_stat(label_text: String, value_text: String) -> HBoxContainer:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	var label := _label(label_text, 15, Color("#f6c177"), true)
-	label.custom_minimum_size = Vector2(92, 0)
+	row.add_theme_constant_override("separation", 8)
+	var label := _label(label_text, 13, Color("#f6c177"), true)
+	label.custom_minimum_size = Vector2(76, 0)
 	label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	label.clip_text = true
-	var value := _label(value_text, 15, Color("#e9f7ef"))
+	var value := _label(value_text, 13, Color("#e9f7ef"))
 	value.autowrap_mode = TextServer.AUTOWRAP_OFF
 	value.clip_text = true
 	value.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -2307,14 +2331,14 @@ func _panel_style() -> StyleBoxFlat:
 	style.border_color = Color(0.92, 0.97, 0.94, 0.28)
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(8)
-	_set_style_margins(style, 14)
+	_set_style_margins(style, 12)
 	return style
 
 
 func _chip_style() -> StyleBoxFlat:
 	var style := _panel_style()
 	style.bg_color = Color(0.03, 0.12, 0.15, 0.82)
-	_set_style_margins(style, 9)
+	_set_style_margins(style, 7)
 	return style
 
 
@@ -2333,7 +2357,7 @@ func _light_panel_style() -> StyleBoxFlat:
 	style.border_color = Color("#08303b")
 	style.set_border_width_all(3)
 	style.set_corner_radius_all(8)
-	_set_style_margins(style, 8)
+	_set_style_margins(style, 7)
 	return style
 
 
@@ -2353,7 +2377,7 @@ func _button_style(variant: String, disabled: bool, multiplier := 1.0) -> StyleB
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
 	style.set_corner_radius_all(8)
-	_set_style_margins(style, 10)
+	_set_style_margins(style, 8)
 	return style
 
 
