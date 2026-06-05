@@ -13,6 +13,9 @@ const LURE_MAX_FALSE_BREATHS := 5
 const FISHING_REDRAW_SECONDS := 0.08
 const SAVE_SYNC_SECONDS := 1.0
 const CUSTOMER_PATIENCE_SECONDS := 22.0
+const RENT_BOAT_ANIMATION_PATH := "res://assets/animations/animacion_renta_banco.ogv"
+const RENT_BOAT_ANIMATION_FALLBACK_SECONDS := 2.4
+const RENT_BOAT_ANIMATION_SAFETY_SECONDS := 8.0
 const WATER_SURFACE_TOP := 0.615
 const BOAT_ANCHOR := Vector2(0.46, 0.72)
 const FISHERMAN_ANCHOR := Vector2(0.458, 0.665)
@@ -129,11 +132,13 @@ var selected_day_menu: Array = []
 var last_catch_result := ""
 var last_catch_started_at := -10.0
 var tutorial_step := 0
+var rent_boat_animation_overlay: Control
 
 var background_layer: Control
 var ui_layer: Control
 var bite_timer: Timer
 var fail_timer: Timer
+var rent_boat_animation_timer: Timer
 
 
 func _ready() -> void:
@@ -202,6 +207,11 @@ func _create_timers() -> void:
 	fail_timer.one_shot = true
 	fail_timer.timeout.connect(func(): _finish_catch("fail"))
 	add_child(fail_timer)
+
+	rent_boat_animation_timer = Timer.new()
+	rent_boat_animation_timer.one_shot = true
+	rent_boat_animation_timer.timeout.connect(_finish_rent_boat_animation)
+	add_child(rent_boat_animation_timer)
 
 
 func _clear_layer(layer: Node) -> void:
@@ -591,7 +601,120 @@ func _rent_boat() -> void:
 	day["boat_rented"] = true
 	message = "Bote rentado. Busca el ritmo de respiración del señuelo."
 	_show_fishing()
+	_play_rent_boat_animation()
 	_persist_save()
+
+
+func _play_rent_boat_animation() -> void:
+	_finish_rent_boat_animation()
+
+	rent_boat_animation_overlay = Control.new()
+	rent_boat_animation_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rent_boat_animation_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	ui_layer.add_child(rent_boat_animation_overlay)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0.02, 0.08, 0.10, 0.78)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rent_boat_animation_overlay.add_child(dim)
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 18)
+	margin.add_theme_constant_override("margin_right", 18)
+	margin.add_theme_constant_override("margin_top", 28)
+	margin.add_theme_constant_override("margin_bottom", 28)
+	rent_boat_animation_overlay.add_child(margin)
+
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	margin.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	panel.custom_minimum_size = Vector2(minf(640.0, get_viewport_rect().size.x - 36.0), 0)
+	center.add_child(panel)
+
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 10)
+	panel.add_child(content)
+
+	var title := _label("Bote rentado", 24, Color("#f6c177"), true)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(title)
+
+	var video_stream = load(RENT_BOAT_ANIMATION_PATH) if ResourceLoader.exists(RENT_BOAT_ANIMATION_PATH) else null
+	if video_stream is VideoStream:
+		var player := VideoStreamPlayer.new()
+		player.stream = video_stream
+		player.expand = true
+		player.custom_minimum_size = Vector2(0, minf(360.0, get_viewport_rect().size.y * 0.48))
+		player.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		player.finished.connect(_finish_rent_boat_animation)
+		content.add_child(player)
+		player.play()
+		rent_boat_animation_timer.wait_time = RENT_BOAT_ANIMATION_SAFETY_SECONDS
+	else:
+		_add_rent_boat_fallback_animation(content)
+		rent_boat_animation_timer.wait_time = RENT_BOAT_ANIMATION_FALLBACK_SECONDS
+
+	var caption := _label("Cuando termine, lanza la cana y espera la mordida real.", 15, Color("#e9f7ef"))
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(caption)
+
+	rent_boat_animation_timer.start()
+
+
+func _add_rent_boat_fallback_animation(content: VBoxContainer) -> void:
+	var area := Control.new()
+	area.custom_minimum_size = Vector2(0, 190)
+	area.clip_contents = true
+	content.add_child(area)
+
+	var sky := ColorRect.new()
+	sky.color = Color("#79c7d9")
+	sky.set_anchors_preset(Control.PRESET_FULL_RECT)
+	sky.anchor_bottom = 0.58
+	area.add_child(sky)
+
+	var sea := ColorRect.new()
+	sea.color = Color("#176f89")
+	sea.set_anchors_preset(Control.PRESET_FULL_RECT)
+	sea.anchor_top = 0.52
+	area.add_child(sea)
+
+	var boat := TextureRect.new()
+	boat.texture = BOAT_TEXTURE
+	boat.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	boat.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	boat.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	boat.custom_minimum_size = Vector2(180, 120)
+	boat.size = Vector2(180, 120)
+	boat.position = Vector2(-140, 54)
+	boat.pivot_offset = Vector2(90, 70)
+	area.add_child(boat)
+
+	var splash := _label("Preparando salida al mar", 18, Color("#e9f7ef"), true)
+	splash.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	splash.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	splash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	splash.anchor_top = 0.62
+	area.add_child(splash)
+
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(boat, "position", Vector2(500, 46), 2.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(boat, "rotation_degrees", 4.0, 1.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween.chain().tween_property(boat, "rotation_degrees", -2.5, 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func _finish_rent_boat_animation() -> void:
+	if rent_boat_animation_timer != null and not rent_boat_animation_timer.is_stopped():
+		rent_boat_animation_timer.stop()
+	if rent_boat_animation_overlay != null and is_instance_valid(rent_boat_animation_overlay):
+		rent_boat_animation_overlay.queue_free()
+	rent_boat_animation_overlay = null
 
 
 func _cast_line() -> void:
