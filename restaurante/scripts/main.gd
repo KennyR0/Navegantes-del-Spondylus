@@ -9,6 +9,7 @@ const PERFECT_WINDOW_SECONDS := 0.45
 const GOOD_WINDOW_SECONDS := 0.60
 const LURE_BREATH_SECONDS := 0.58
 const FISHING_REDRAW_SECONDS := 0.08
+const SAVE_SYNC_SECONDS := 1.0
 const CUSTOMER_PATIENCE_SECONDS := 22.0
 const WATER_SURFACE_TOP := 0.615
 const BOAT_ANCHOR := Vector2(0.46, 0.72)
@@ -105,6 +106,7 @@ var lure_breaths_remaining := 0
 var lure_breaths_total := 0
 var fishing_redraw_elapsed := 0.0
 var restaurant_refresh_elapsed := 0.0
+var save_sync_elapsed := 0.0
 var summary_finalized := false
 var selected_day_menu: Array = []
 var last_catch_result := ""
@@ -125,6 +127,8 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_tick_save_sync(delta)
+
 	if mode == "fishing":
 		fishing_redraw_elapsed += delta
 		if fishing_redraw_elapsed >= FISHING_REDRAW_SECONDS:
@@ -147,6 +151,17 @@ func _process(delta: float) -> void:
 	if changed or restaurant_refresh_elapsed >= 0.25:
 		restaurant_refresh_elapsed = 0.0
 		_show_restaurant()
+		if changed:
+			_persist_save()
+
+
+func _tick_save_sync(delta: float) -> void:
+	if day.is_empty() or mode == "menu":
+		return
+	save_sync_elapsed += delta
+	if save_sync_elapsed >= SAVE_SYNC_SECONDS:
+		save_sync_elapsed = 0.0
+		_persist_save()
 
 
 func _create_layers() -> void:
@@ -211,9 +226,72 @@ func _load_save() -> Dictionary:
 
 
 func _persist_save() -> void:
+	var run_snapshot := _create_run_snapshot()
+	if run_snapshot.is_empty():
+		save.erase("current_run")
+	else:
+		save["current_run"] = run_snapshot
+
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file:
 		file.store_string(JSON.stringify(save))
+
+
+func _has_saved_run() -> bool:
+	return typeof(save.get("current_run", null)) == TYPE_DICTIONARY and not (save["current_run"] as Dictionary).is_empty()
+
+
+func _create_run_snapshot() -> Dictionary:
+	if day.is_empty():
+		return {}
+
+	return {
+		"mode": mode,
+		"day": day.duplicate(true),
+		"restaurant": _serialize_restaurant_state(),
+		"selected_day_menu": selected_day_menu.duplicate(),
+		"fishing": _serialize_fishing_state(),
+		"summary_finalized": summary_finalized,
+		"message": message
+	}
+
+
+func _serialize_fishing_state() -> Dictionary:
+	var now := _now_seconds()
+	return {
+		"phase": fishing_phase,
+		"bite_elapsed": maxf(0.0, now - bite_started_at),
+		"cast_elapsed": maxf(0.0, now - cast_started_at),
+		"lure_motion_elapsed": maxf(0.0, now - lure_motion_started_at),
+		"lure_breaths_remaining": lure_breaths_remaining,
+		"lure_breaths_total": lure_breaths_total,
+		"bite_timer_remaining": bite_timer.time_left if not bite_timer.is_stopped() else 0.0,
+		"fail_timer_remaining": fail_timer.time_left if not fail_timer.is_stopped() else 0.0,
+		"last_catch_result": last_catch_result,
+		"last_catch_elapsed": maxf(0.0, now - last_catch_started_at)
+	}
+
+
+func _serialize_restaurant_state() -> Dictionary:
+	if restaurant.is_empty():
+		return {}
+
+	var now := _now_seconds()
+	var copy := restaurant.duplicate(true)
+	for stove_item in copy.get("stoves", []):
+		var stove: Dictionary = stove_item as Dictionary
+		if stove.get("recipe_id", "") != "" and not bool(stove.get("ready", false)):
+			stove["ready_remaining"] = maxf(0.0, float(stove.get("ready_at", now)) - now)
+
+	for customer_item in copy.get("customers", []):
+		var customer: Dictionary = customer_item as Dictionary
+		match str(customer.get("state", "")):
+			"waiting_to_arrive":
+				customer["arrival_remaining"] = maxf(0.0, float(customer.get("arrives_at", now)) - now)
+			"present":
+				customer["waited_seconds"] = maxf(0.0, now - float(customer.get("arrived_at", now)))
+
+	return copy
 
 
 func _create_empty_summary() -> Dictionary:
@@ -235,30 +313,139 @@ func _create_new_day() -> Dictionary:
 		"inventory": {
 			"normal_fish": 0,
 			"premium_fish": 0,
-			"placeholder_spice": PLACEHOLDER_INGREDIENTS_PER_DAY
+			"placeholder_spice": _get_daily_spices()
 		},
 		"boat_rented": false,
-		"casts_left": DAILY_CASTS,
+		"casts_left": _get_daily_casts(),
 		"summary": _create_empty_summary()
 	}
+
+
+func _continue_saved_run() -> void:
+	var run = save.get("current_run", null)
+	if typeof(run) != TYPE_DICTIONARY or (run as Dictionary).is_empty():
+		message = "No hay partida en curso para continuar."
+		_show_menu()
+		return
+
+	var run_data: Dictionary = run as Dictionary
+	day = _restore_day_state(run_data.get("day", {}))
+	restaurant = _restore_restaurant_state(run_data.get("restaurant", {}))
+	selected_day_menu = []
+	if typeof(run_data.get("selected_day_menu", null)) == TYPE_ARRAY:
+		selected_day_menu = (run_data.get("selected_day_menu", []) as Array).duplicate()
+	summary_finalized = bool(run_data.get("summary_finalized", false))
+	message = str(run_data.get("message", "Partida recuperada."))
+	_restore_fishing_state(run_data.get("fishing", {}))
+
+	match str(run_data.get("mode", "fishing")):
+		"menu_setup":
+			_show_menu_setup()
+		"restaurant":
+			if restaurant.is_empty():
+				message = "Partida recuperada; vuelve a elegir el menu del dia."
+				_show_menu_setup()
+			else:
+				_show_restaurant()
+		"summary":
+			_show_summary()
+		_:
+			_show_fishing()
+
+
+func _restore_day_state(raw_day) -> Dictionary:
+	var restored := _create_new_day()
+	if typeof(raw_day) == TYPE_DICTIONARY:
+		var raw: Dictionary = raw_day as Dictionary
+		for key in raw.keys():
+			restored[key] = raw[key]
+	if typeof(restored.get("summary", null)) != TYPE_DICTIONARY:
+		restored["summary"] = _create_empty_summary()
+	return restored
+
+
+func _restore_fishing_state(raw_fishing) -> void:
+	bite_timer.stop()
+	fail_timer.stop()
+
+	var fishing := {}
+	if typeof(raw_fishing) == TYPE_DICTIONARY:
+		fishing = raw_fishing as Dictionary
+	var now := _now_seconds()
+	fishing_phase = str(fishing.get("phase", "idle"))
+	cast_started_at = now - float(fishing.get("cast_elapsed", 0.0))
+	lure_motion_started_at = now - float(fishing.get("lure_motion_elapsed", 0.0))
+	bite_started_at = now - float(fishing.get("bite_elapsed", 0.0))
+	lure_breaths_remaining = int(fishing.get("lure_breaths_remaining", 0))
+	lure_breaths_total = int(fishing.get("lure_breaths_total", 0))
+	last_catch_result = str(fishing.get("last_catch_result", ""))
+	last_catch_started_at = now - float(fishing.get("last_catch_elapsed", CATCH_REACTION_SECONDS + 1.0))
+
+	match fishing_phase:
+		"waiting", "breath":
+			var bite_remaining := float(fishing.get("bite_timer_remaining", 0.0))
+			if bite_remaining > 0.0:
+				bite_timer.wait_time = bite_remaining
+				bite_timer.start()
+			else:
+				fishing_phase = "idle"
+		"bite":
+			var fail_remaining := float(fishing.get("fail_timer_remaining", 0.0))
+			if fail_remaining > 0.0:
+				fail_timer.wait_time = fail_remaining
+				fail_timer.start()
+			else:
+				fishing_phase = "idle"
+		"idle":
+			pass
+		_:
+			fishing_phase = "idle"
+
+
+func _restore_restaurant_state(raw_restaurant) -> Dictionary:
+	if typeof(raw_restaurant) != TYPE_DICTIONARY:
+		return {}
+
+	var now := _now_seconds()
+	var restored: Dictionary = (raw_restaurant as Dictionary).duplicate(true)
+	for stove_item in restored.get("stoves", []):
+		var stove: Dictionary = stove_item as Dictionary
+		if stove.get("recipe_id", "") != "" and not bool(stove.get("ready", false)):
+			stove["ready_at"] = now + float(stove.get("ready_remaining", 0.0))
+
+	for customer_item in restored.get("customers", []):
+		var customer: Dictionary = customer_item as Dictionary
+		match str(customer.get("state", "")):
+			"waiting_to_arrive":
+				customer["arrives_at"] = now + float(customer.get("arrival_remaining", 0.0))
+				customer["arrived_at"] = 0.0
+			"present":
+				customer["arrived_at"] = now - float(customer.get("waited_seconds", 0.0))
+
+	return restored
 
 
 func _start_fresh_run() -> void:
 	save = _create_default_save()
 	day = _create_new_day()
+	restaurant = {}
+	selected_day_menu = []
 	fishing_phase = "idle"
 	message = "Renta un bote para salir antes de que suba la marea."
 	summary_finalized = false
-	_persist_save()
 	_show_fishing()
+	_persist_save()
 
 
 func _start_next_day() -> void:
 	day = _create_new_day()
+	restaurant = {}
+	selected_day_menu = []
 	fishing_phase = "idle"
 	message = "Renta un bote para salir antes de que suba la marea."
 	summary_finalized = false
 	_show_fishing()
+	_persist_save()
 
 
 func _show_menu() -> void:
@@ -277,7 +464,7 @@ func _show_menu() -> void:
 
 	var controls := _button_row()
 	controls.add_child(_button("Nuevo día", Callable(self, "_start_fresh_run")))
-	controls.add_child(_button("Continuar", Callable(self, "_start_next_day"), not FileAccess.file_exists(SAVE_PATH), "secondary"))
+	controls.add_child(_button("Continuar", Callable(self, "_continue_saved_run"), not _has_saved_run(), "secondary"))
 	panel.add_child(controls)
 
 
@@ -290,7 +477,7 @@ func _show_fishing() -> void:
 	_add_top_bar([
 		"Monedas %s" % save["coins"],
 		"Normal %s · Premium %s" % [day["inventory"]["normal_fish"], day["inventory"]["premium_fish"]],
-		"Lances %s/%s" % [day["casts_left"], DAILY_CASTS]
+		"Lances %s/%s" % [day["casts_left"], _get_daily_casts()]
 	])
 	_add_toast(message)
 
@@ -298,7 +485,7 @@ func _show_fishing() -> void:
 	controls.add_child(_button("Rentar barco (%s)" % BOAT_RENTAL_COST, Callable(self, "_rent_boat"), day["boat_rented"]))
 	controls.add_child(_button("Lanzar caña", Callable(self, "_cast_line"), not day["boat_rented"] or fishing_phase != "idle" or day["casts_left"] <= 0, "secondary"))
 	controls.add_child(_button("¡Jalar!", Callable(self, "_hook_fish"), fishing_phase == "idle", "danger", true))
-	controls.add_child(_button("Ir al restaurante", Callable(self, "_open_restaurant"), day["casts_left"] == DAILY_CASTS or fishing_phase != "idle"))
+	controls.add_child(_button("Ir al restaurante", Callable(self, "_open_restaurant"), day["casts_left"] == _get_daily_casts() or fishing_phase != "idle"))
 
 
 func _rent_boat() -> void:
@@ -311,9 +498,9 @@ func _rent_boat() -> void:
 
 	save["coins"] -= BOAT_RENTAL_COST
 	day["boat_rented"] = true
-	_persist_save()
 	message = "Bote rentado. Busca el ritmo de respiración del señuelo."
 	_show_fishing()
+	_persist_save()
 
 
 func _cast_line() -> void:
@@ -330,6 +517,7 @@ func _cast_line() -> void:
 	bite_timer.wait_time = rng.randf_range(1.15, 1.85)
 	bite_timer.start()
 	_show_fishing()
+	_persist_save()
 
 
 func _advance_lure_sequence() -> void:
@@ -352,6 +540,7 @@ func _start_lure_breath() -> void:
 	bite_timer.wait_time = LURE_BREATH_SECONDS
 	bite_timer.start()
 	_show_fishing()
+	_persist_save()
 
 
 func _return_lure_to_surface() -> void:
@@ -362,6 +551,7 @@ func _return_lure_to_surface() -> void:
 	bite_timer.wait_time = rng.randf_range(0.85, 1.45)
 	bite_timer.start()
 	_show_fishing()
+	_persist_save()
 
 
 func _start_bite() -> void:
@@ -371,10 +561,11 @@ func _start_bite() -> void:
 	fishing_phase = "bite"
 	bite_started_at = _now_seconds()
 	lure_motion_started_at = bite_started_at
-	message = "¡Se hundió! Jala antes de 0.45s para pesca perfecta."
-	fail_timer.wait_time = GOOD_WINDOW_SECONDS
+	message = "¡Se hundió! Jala antes de %.2fs para pesca perfecta." % _get_perfect_window_seconds()
+	fail_timer.wait_time = _get_good_window_seconds()
 	fail_timer.start()
 	_show_fishing()
+	_persist_save()
 
 
 func _hook_fish() -> void:
@@ -386,9 +577,9 @@ func _hook_fish() -> void:
 		return
 
 	var elapsed := _now_seconds() - bite_started_at
-	if elapsed <= PERFECT_WINDOW_SECONDS:
+	if elapsed <= _get_perfect_window_seconds():
 		_finish_catch("perfect")
-	elif elapsed <= GOOD_WINDOW_SECONDS:
+	elif elapsed <= _get_good_window_seconds():
 		_finish_catch("good")
 	else:
 		_finish_catch("fail")
@@ -421,6 +612,7 @@ func _finish_catch(result: String) -> void:
 	if day["casts_left"] <= 0:
 		message += " Último lance del día."
 	_show_fishing()
+	_persist_save()
 
 
 func _catch_result_label(result: String) -> String:
@@ -456,6 +648,7 @@ func _open_restaurant() -> void:
 	selected_day_menu = _default_day_menu_recipe_ids()
 	message = "Elige hasta 3 platos para vender hoy."
 	_show_menu_setup()
+	_persist_save()
 
 
 func _show_menu_setup() -> void:
@@ -472,6 +665,7 @@ func _show_menu_setup() -> void:
 	var panel := _bottom_panel(640)
 	panel.add_child(_label("Menú del día", 24, Color("#f6c177"), true))
 	panel.add_child(_small_stat("Regla", "Elige hasta 3 platos. Los clientes pedirán solo este menú."))
+	panel.add_child(_small_stat("Mejora", _upgrade_effect_summary()))
 
 	var recipe_grid := _button_row()
 	for recipe_item in RECIPES:
@@ -501,6 +695,7 @@ func _toggle_day_menu_recipe(recipe_id: String) -> void:
 
 	message = "Menú listo: %s/%s platos." % [selected_day_menu.size(), MAX_DAY_MENU_RECIPES]
 	_show_menu_setup()
+	_persist_save()
 
 
 func _start_restaurant_day() -> void:
@@ -512,6 +707,7 @@ func _start_restaurant_day() -> void:
 	restaurant = _create_restaurant_state(selected_day_menu)
 	message = "Cocina lo elegido y atiende cuando los clientes lleguen."
 	_show_restaurant()
+	_persist_save()
 
 
 func _default_day_menu_recipe_ids() -> Array:
@@ -547,7 +743,7 @@ func _create_restaurant_state(day_menu: Array) -> Dictionary:
 			"order_recipe_id": recipe["id"],
 			"arrives_at": next_arrival,
 			"arrived_at": 0.0,
-			"patience_seconds": CUSTOMER_PATIENCE_SECONDS + index * 2.5,
+			"patience_seconds": CUSTOMER_PATIENCE_SECONDS + index * 2.5 + _get_customer_patience_bonus_seconds(),
 			"satisfaction": "",
 			"served": false,
 			"state": "waiting_to_arrive"
@@ -621,7 +817,7 @@ func _show_restaurant_v2() -> void:
 	var cook_row := _button_row()
 	for recipe_id in restaurant.get("day_menu", []):
 		var recipe_data: Dictionary = _get_recipe(str(recipe_id))
-		cook_row.add_child(_button("%s $%s" % [recipe_data["short_name"], DISH_PRICES[recipe_data["id"]]], Callable(self, "_start_cooking").bind(recipe_data["id"]), not _can_cook(recipe_data)))
+		cook_row.add_child(_button("%s $%s" % [recipe_data["short_name"], _get_dish_price(recipe_data["id"])], Callable(self, "_start_cooking").bind(recipe_data["id"]), not _can_cook(recipe_data)))
 	panel.add_child(cook_row)
 
 	var deliver_row := _button_row()
@@ -655,10 +851,11 @@ func _start_cooking(recipe_id: String) -> void:
 	var now: float = Time.get_ticks_msec() / 1000.0
 	stove["recipe_id"] = recipe["id"]
 	stove["started_at"] = now
-	stove["ready_at"] = now + recipe["cook_seconds"]
+	stove["ready_at"] = now + _get_cook_seconds(recipe)
 	stove["ready"] = false
 	message = "%s en la hornilla %s." % [recipe["short_name"], stove["id"] + 1]
 	_show_restaurant()
+	_persist_save()
 
 
 func _deliver_to_customer(customer_id: int) -> void:
@@ -683,7 +880,7 @@ func _deliver_to_customer(customer_id: int) -> void:
 	var correct_dish: bool = stove["recipe_id"] == customer["order_recipe_id"]
 	var satisfaction: String = _score_satisfaction(customer, correct_dish)
 	var recipe: Dictionary = _get_recipe(stove["recipe_id"])
-	var full_price: int = int(DISH_PRICES[recipe["id"]])
+	var full_price: int = _get_dish_price(recipe["id"])
 	var price: int = full_price if correct_dish else floori(full_price * 0.25)
 	var final_price: int = floori(price * 0.5) if satisfaction == "unhappy" else price
 
@@ -696,10 +893,10 @@ func _deliver_to_customer(customer_id: int) -> void:
 	day["summary"][satisfaction] += 1
 	day["summary"]["revenue"] += final_price
 	save["coins"] += final_price
-	_persist_save()
 
 	message = "%s entregado: +%s monedas." % [recipe["short_name"], final_price] if correct_dish else "Plato equivocado: el cliente dejó %s monedas." % final_price
 	_show_restaurant()
+	_persist_save()
 
 
 func _update_stoves() -> bool:
@@ -785,6 +982,7 @@ func _show_summary() -> void:
 	panel.add_child(_small_stat("Clientes", "%s atendidos" % day["summary"]["served"]))
 	panel.add_child(_small_stat("Caritas", "%s felices · %s neutras · %s molestas" % [day["summary"]["happy"], day["summary"]["neutral"], day["summary"]["unhappy"]]))
 	panel.add_child(_small_stat("Pesca", "%s perfectas · %s buenas · %s fallidas" % [day["summary"]["perfect_catches"], day["summary"]["good_catches"], day["summary"]["failed_catches"]]))
+	panel.add_child(_small_stat("Mejora actual", _upgrade_effect_summary()))
 
 	var controls := _button_row()
 	var upgrade_cost := _get_upgrade_cost()
@@ -803,9 +1001,9 @@ func _finalize_day() -> void:
 	save["stars"] = min(5, save["stars"] + earned_stars)
 	if save["best_day"] == null or summary["revenue"] > save["best_day"]["revenue"]:
 		save["best_day"] = summary.duplicate(true)
-	_persist_save()
 	summary_finalized = true
 	message = "El puerto empieza a hablar bien de tu sazón." if earned_stars > 0 else "El puesto sobrevivió, pero falta ganarse a Manta."
+	_persist_save()
 
 
 func _upgrade_restaurant() -> void:
@@ -818,13 +1016,75 @@ func _upgrade_restaurant() -> void:
 	save["coins"] -= cost
 	save["upgrade_level"] += 1
 	save["stars"] = min(5, max(save["stars"], save["upgrade_level"]))
-	_persist_save()
-	message = "Nueva mesa, pintura fresca y más respeto en el puerto."
+	message = "Mejora %s lista: %s" % [save["upgrade_level"], _upgrade_effect_summary()]
 	_show_summary()
+	_persist_save()
 
 
 func _get_upgrade_cost() -> int:
-	return 50 + int(save["upgrade_level"]) * 25
+	var level := _get_upgrade_level()
+	return 50 + level * 30 + max(0, level - 2) * 15
+
+
+func _get_upgrade_level() -> int:
+	return max(0, int(save.get("upgrade_level", 0)))
+
+
+func _get_daily_casts() -> int:
+	var level := _get_upgrade_level()
+	return DAILY_CASTS + min(2, floori(float(level) / 2.0))
+
+
+func _get_daily_spices() -> int:
+	var level := _get_upgrade_level()
+	return PLACEHOLDER_INGREDIENTS_PER_DAY + min(2, max(0, level - 2))
+
+
+func _get_cook_seconds(recipe: Dictionary) -> float:
+	var level := _get_upgrade_level()
+	var multiplier: float = 1.0 - min(3, level) * 0.10
+	return maxf(2.5, float(recipe["cook_seconds"]) * multiplier)
+
+
+func _get_customer_patience_bonus_seconds() -> float:
+	return float(min(3, _get_upgrade_level())) * 2.5
+
+
+func _get_perfect_window_seconds() -> float:
+	var level := _get_upgrade_level()
+	return PERFECT_WINDOW_SECONDS + float(min(2, floori(float(level) / 2.0))) * 0.07
+
+
+func _get_good_window_seconds() -> float:
+	var level := _get_upgrade_level()
+	return GOOD_WINDOW_SECONDS + float(min(2, floori(float(level) / 2.0))) * 0.08
+
+
+func _get_dish_price(recipe_id: String) -> int:
+	var level := _get_upgrade_level()
+	var fame_bonus: float = float(min(3, max(0, level - 2))) * 0.08
+	return int(round(float(DISH_PRICES[recipe_id]) * (1.0 + fame_bonus)))
+
+
+func _upgrade_effect_summary() -> String:
+	var level := _get_upgrade_level()
+	if level <= 0:
+		return "Sin mejoras: cocina base, 5 lances y precios normales."
+
+	var effects: Array = []
+	effects.append("cocina %s%% más rápida" % int(min(3, level) * 10))
+	effects.append("+%ss paciencia" % int(_get_customer_patience_bonus_seconds()))
+	if _get_daily_casts() > DAILY_CASTS:
+		var extra_casts := _get_daily_casts() - DAILY_CASTS
+		effects.append("+%s lance%s" % [extra_casts, "" if extra_casts == 1 else "s"])
+	if _get_perfect_window_seconds() > PERFECT_WINDOW_SECONDS:
+		effects.append("pesca más estable")
+	if _get_daily_spices() > PLACEHOLDER_INGREDIENTS_PER_DAY:
+		effects.append("+%s aliño" % (_get_daily_spices() - PLACEHOLDER_INGREDIENTS_PER_DAY))
+	var price_bonus := int(round((float(_get_dish_price("ceviche_manta")) / float(DISH_PRICES["ceviche_manta"]) - 1.0) * 100.0))
+	if price_bonus > 0:
+		effects.append("+%s%% precios" % price_bonus)
+	return "L%s: %s." % [level, " · ".join(effects)]
 
 
 func _get_recipe(recipe_id: String) -> Dictionary:
@@ -1067,7 +1327,7 @@ func _draw_fisherman() -> void:
 		scale += Vector2(0.08, -0.08) * recoil
 		rotation = -5.0 * recoil
 	elif fishing_phase == "bite":
-		var bite_ratio: float = clampf(_bite_elapsed() / GOOD_WINDOW_SECONDS, 0.0, 1.0)
+		var bite_ratio: float = clampf(_bite_elapsed() / _get_good_window_seconds(), 0.0, 1.0)
 		var shake: float = sin(time * 34.0) * (1.0 - bite_ratio)
 		anchor += Vector2(0.014 + shake * 0.004, -0.015)
 		scale += Vector2(-0.04, 0.08)
@@ -1589,7 +1849,7 @@ func _add_fishing_meter() -> void:
 
 	var perfect_mark := ColorRect.new()
 	perfect_mark.color = Color(0.92, 1.0, 0.96, 0.8)
-	perfect_mark.anchor_left = PERFECT_WINDOW_SECONDS / GOOD_WINDOW_SECONDS
+	perfect_mark.anchor_left = _get_perfect_window_seconds() / _get_good_window_seconds()
 	perfect_mark.anchor_right = perfect_mark.anchor_left
 	perfect_mark.anchor_top = 0.0
 	perfect_mark.anchor_bottom = 1.0
@@ -1600,7 +1860,7 @@ func _add_fishing_meter() -> void:
 
 func _fishing_meter_ratio() -> float:
 	if fishing_phase == "bite":
-		return clampf(_bite_elapsed() / GOOD_WINDOW_SECONDS, 0.0, 1.0)
+		return clampf(_bite_elapsed() / _get_good_window_seconds(), 0.0, 1.0)
 	if fishing_phase == "breath":
 		return clampf(_lure_motion_ratio(), 0.0, 1.0)
 	var wait_progress := 1.0 - clampf(bite_timer.time_left / maxf(0.001, bite_timer.wait_time), 0.0, 1.0)

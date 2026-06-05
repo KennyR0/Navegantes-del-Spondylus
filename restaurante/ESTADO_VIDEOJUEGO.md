@@ -183,6 +183,31 @@ La satisfacción depende de:
 - Si el plato entregado es correcto.
 - Qué tanto esperó el cliente.
 
+## Mejoras jugables del puesto
+
+`Mejorar puesto` ahora consume monedas y aplica efectos reales desde `upgrade_level`:
+
+- Nivel 1: cocina 10% mas rapido y clientes con +2.5s de paciencia.
+- Nivel 2: mantiene mejoras de restaurante, agrega 1 lance diario y amplia la ventana de pesca buena/perfecta.
+- Nivel 3: agrega 1 alino diario y un bono moderado de precio por fama.
+- Niveles superiores: escalan de forma acotada hasta 30% de cocina, +7.5s de paciencia, 7 lances, +2 alinos y hasta +24% de precios.
+
+El costo cambia de `50 + nivel * 25` a `50 + nivel * 30 + max(0, nivel - 2) * 15` para compensar los bonos de produccion.
+
+## Guardado y continuidad
+
+El archivo `user://la_pochita_stone_save.json` ahora guarda tambien la partida en curso en `current_run`.
+
+El boton `Continuar` restaura:
+
+- Estado global persistente: monedas, estrellas, mejor nivel, recetas y mejor dia.
+- Estado del dia: inventario, bote, lances restantes y resumen.
+- Fase actual: pesca, seleccion de menu, restaurante o resumen.
+- Pesca activa: fase del senuelo, timers restantes, ventana de mordida y ultimo resultado.
+- Restaurante: menu elegido, hornillas, platos listos/en coccion, clientes, llegada, espera, satisfaccion y pedidos.
+
+Los tiempos de hornillas, clientes y pesca se guardan como tiempos restantes o transcurridos para que sigan siendo validos despues de cerrar y abrir el juego.
+
 Estados posibles:
 
 - `happy`
