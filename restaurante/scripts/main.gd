@@ -8,6 +8,8 @@ const PLACEHOLDER_INGREDIENTS_PER_DAY := 2
 const PERFECT_WINDOW_SECONDS := 0.45
 const GOOD_WINDOW_SECONDS := 0.60
 const LURE_BREATH_SECONDS := 0.58
+const LURE_MIN_FALSE_BREATHS := 0
+const LURE_MAX_FALSE_BREATHS := 5
 const FISHING_REDRAW_SECONDS := 0.08
 const SAVE_SYNC_SECONDS := 1.0
 const CUSTOMER_PATIENCE_SECONDS := 22.0
@@ -21,6 +23,7 @@ const FISH_ANCHOR := Vector2(0.61, 0.79)
 const WATER_TEXTURE := preload("res://assets/craftpix/3 Objects/Water.png")
 const HUT_TEXTURE := preload("res://assets/craftpix/3 Objects/Fishing_hut.png")
 const BOAT_TEXTURE := preload("res://assets/craftpix/3 Objects/Boat.png")
+const SHIPYARD_BACKGROUND_TEXTURE := preload("res://assets/pixelart/shipyard_background.png")
 const FISHING_SEASCAPE_TEXTURE := preload("res://assets/pixelart/fishing_seascape_pixel.png")
 const FISH_NORMAL_TEXTURE := preload("res://assets/pixelart/fish_normal_pixel.png")
 const FISH_PREMIUM_TEXTURE := preload("res://assets/pixelart/fish_premium_pixel.png")
@@ -58,6 +61,20 @@ const FIRST_CUSTOMER_DELAY_SECONDS := 1.4
 const MIN_CUSTOMER_ARRIVAL_GAP_SECONDS := 5.0
 const MAX_CUSTOMER_ARRIVAL_GAP_SECONDS := 8.0
 const CATCH_REACTION_SECONDS := 1.15
+const TUTORIAL_STEPS := [
+	{
+		"title": "Pesca: no todo movimiento es mordida",
+		"body": "Cuando el senuelo respira, el agua se mueve pero el pez todavia no mordio. Si jalas en una respiracion falsa, pierdes el lance."
+	},
+	{
+		"title": "Mordida real: jala al hundirse",
+		"body": "La mordida real ocurre cuando el senuelo se hunde y aparece el aviso de jalar. Reacciona rapido: perfecto da pescado premium; bueno da pescado normal."
+	},
+	{
+		"title": "Cocina: arma el menu del dia",
+		"body": "Antes de abrir la cocina eliges hasta 3 platos para vender. Los clientes solo pediran recetas de ese menu, asi que elige segun los pescados y alinos que tengas."
+	}
+]
 
 const RECIPES := [
 	{
@@ -111,6 +128,7 @@ var summary_finalized := false
 var selected_day_menu: Array = []
 var last_catch_result := ""
 var last_catch_started_at := -10.0
+var tutorial_step := 0
 
 var background_layer: Control
 var ui_layer: Control
@@ -203,7 +221,8 @@ func _create_default_save() -> Dictionary:
 		"stars": 0,
 		"upgrade_level": 0,
 		"unlocked_recipes": ["ceviche_manta", "encebollado_pochita", "pargo_premium"],
-		"best_day": null
+		"best_day": null,
+		"tutorial_seen": false
 	}
 
 
@@ -252,6 +271,7 @@ func _create_run_snapshot() -> Dictionary:
 		"selected_day_menu": selected_day_menu.duplicate(),
 		"fishing": _serialize_fishing_state(),
 		"summary_finalized": summary_finalized,
+		"tutorial_step": tutorial_step,
 		"message": message
 	}
 
@@ -335,10 +355,13 @@ func _continue_saved_run() -> void:
 	if typeof(run_data.get("selected_day_menu", null)) == TYPE_ARRAY:
 		selected_day_menu = (run_data.get("selected_day_menu", []) as Array).duplicate()
 	summary_finalized = bool(run_data.get("summary_finalized", false))
+	tutorial_step = int(run_data.get("tutorial_step", 0))
 	message = str(run_data.get("message", "Partida recuperada."))
 	_restore_fishing_state(run_data.get("fishing", {}))
 
 	match str(run_data.get("mode", "fishing")):
+		"tutorial":
+			_show_tutorial(tutorial_step)
 		"menu_setup":
 			_show_menu_setup()
 		"restaurant":
@@ -426,14 +449,20 @@ func _restore_restaurant_state(raw_restaurant) -> Dictionary:
 
 
 func _start_fresh_run() -> void:
+	var tutorial_was_seen := bool(save.get("tutorial_seen", false))
 	save = _create_default_save()
+	save["tutorial_seen"] = tutorial_was_seen
 	day = _create_new_day()
 	restaurant = {}
 	selected_day_menu = []
 	fishing_phase = "idle"
+	tutorial_step = 0
 	message = "Renta un bote para salir antes de que suba la marea."
 	summary_finalized = false
-	_show_fishing()
+	if _should_show_first_day_tutorial():
+		_show_tutorial(0)
+	else:
+		_show_fishing()
 	_persist_save()
 
 
@@ -442,8 +471,70 @@ func _start_next_day() -> void:
 	restaurant = {}
 	selected_day_menu = []
 	fishing_phase = "idle"
+	tutorial_step = 0
 	message = "Renta un bote para salir antes de que suba la marea."
 	summary_finalized = false
+	_show_fishing()
+	_persist_save()
+
+
+func _should_show_first_day_tutorial() -> bool:
+	return not bool(save.get("tutorial_seen", false))
+
+
+func _show_tutorial(step := 0) -> void:
+	mode = "tutorial"
+	tutorial_step = clampi(step, 0, TUTORIAL_STEPS.size() - 1)
+	_reset_screen()
+	if tutorial_step < 2:
+		_draw_fishing_background()
+	else:
+		_draw_restaurant_background()
+	_add_top_bar([
+		"Tutorial %s/%s" % [tutorial_step + 1, TUTORIAL_STEPS.size()],
+		"Demo gamejam: aprende lo esencial y empieza rapido"
+	])
+
+	var step_data: Dictionary = TUTORIAL_STEPS[tutorial_step] as Dictionary
+	var panel := _bottom_panel(680)
+	panel.add_child(_label(str(step_data["title"]), 24, Color("#f6c177"), true))
+	panel.add_child(_text_panel(str(step_data["body"]), 16, Color("#e9f7ef"), true))
+	panel.add_child(_tutorial_hint_panel())
+
+	var controls := _button_row()
+	var next_label := "Empezar a pescar" if tutorial_step >= TUTORIAL_STEPS.size() - 1 else "Siguiente"
+	controls.add_child(_button(next_label, Callable(self, "_advance_tutorial")))
+	controls.add_child(_button("Saltar", Callable(self, "_skip_tutorial"), false, "secondary"))
+	panel.add_child(controls)
+	_persist_save()
+
+
+func _tutorial_hint_panel() -> PanelContainer:
+	var hint := ""
+	if tutorial_step == 0:
+		hint = "Clave: durante la respiracion falsa, espera. El boton Jalar castiga la ansiedad."
+	elif tutorial_step == 1:
+		hint = "Clave: cuando se hunde, jala de inmediato. La ventana perfecta es corta."
+	else:
+		hint = "Clave: el menu filtra los pedidos. No vendas platos que no podras cocinar."
+	return _text_panel(hint, 14, Color("#f6c177"), true)
+
+
+func _advance_tutorial() -> void:
+	if tutorial_step >= TUTORIAL_STEPS.size() - 1:
+		_finish_tutorial()
+		return
+	_show_tutorial(tutorial_step + 1)
+
+
+func _skip_tutorial() -> void:
+	_finish_tutorial()
+
+
+func _finish_tutorial() -> void:
+	save["tutorial_seen"] = true
+	tutorial_step = TUTORIAL_STEPS.size() - 1
+	message = "Renta un bote, mira el senuelo y jala solo cuando se hunda."
 	_show_fishing()
 	_persist_save()
 
@@ -509,7 +600,7 @@ func _cast_line() -> void:
 
 	fishing_phase = "waiting"
 	cast_started_at = _now_seconds()
-	lure_breaths_total = rng.randi_range(2, 4)
+	lure_breaths_total = rng.randi_range(LURE_MIN_FALSE_BREATHS, LURE_MAX_FALSE_BREATHS)
 	lure_breaths_remaining = lure_breaths_total
 	lure_motion_started_at = _now_seconds()
 	fishing_redraw_elapsed = 0.0
@@ -656,31 +747,76 @@ func _show_menu_setup() -> void:
 	_reset_screen()
 	_draw_restaurant_background()
 	_add_top_bar([
-		"Monedas %s" % save["coins"],
-		"Normal %s · Premium %s · Aliño %s" % [day["inventory"]["normal_fish"], day["inventory"]["premium_fish"], day["inventory"]["placeholder_spice"]],
-		"Menú %s/%s" % [selected_day_menu.size(), MAX_DAY_MENU_RECIPES]
+		"Monedas: %s" % save["coins"],
+		"Inventario: %s normal · %s premium · %s aliños" % [day["inventory"]["normal_fish"], day["inventory"]["premium_fish"], day["inventory"]["placeholder_spice"]],
+		"Menú elegido: %s/%s" % [selected_day_menu.size(), MAX_DAY_MENU_RECIPES]
 	])
 	_add_toast(message)
 
-	var panel := _bottom_panel(640)
+	var panel := _bottom_panel(700)
 	panel.add_child(_label("Menú del día", 24, Color("#f6c177"), true))
-	panel.add_child(_small_stat("Regla", "Elige hasta 3 platos. Los clientes pedirán solo este menú."))
+	panel.add_child(_text_panel("Elige hasta 3 platos. Cocinar consume pescado; servir clientes te da monedas.", 15, Color("#e9f7ef"), true))
 	panel.add_child(_small_stat("Mejora", _upgrade_effect_summary()))
 
 	var recipe_grid := _button_row()
 	for recipe_item in RECIPES:
 		var recipe_data: Dictionary = recipe_item as Dictionary
 		if save["unlocked_recipes"].has(recipe_data["id"]):
-			var selected: bool = selected_day_menu.has(recipe_data["id"])
-			var label_text: String = "[x] %s" % recipe_data["short_name"] if selected else str(recipe_data["short_name"])
-			var button_variant: String = "primary" if selected else "secondary"
-			recipe_grid.add_child(_button(label_text, Callable(self, "_toggle_day_menu_recipe").bind(recipe_data["id"]), false, button_variant))
+			recipe_grid.add_child(_recipe_menu_card(recipe_data))
 	panel.add_child(recipe_grid)
 
 	var start_row := _button_row()
 	start_row.add_child(_button("Abrir cocina", Callable(self, "_start_restaurant_day"), selected_day_menu.is_empty()))
 	start_row.add_child(_button("Volver a pescar", Callable(self, "_show_fishing"), false, "secondary"))
 	panel.add_child(start_row)
+
+
+func _recipe_menu_card(recipe: Dictionary) -> Button:
+	var recipe_id := str(recipe["id"])
+	var selected := selected_day_menu.has(recipe_id)
+	var can_cook := _can_cook(recipe)
+	var variant := "primary" if selected else "secondary"
+	var status_text := _recipe_availability_text(recipe, selected)
+	var selected_mark := "[x] " if selected else ""
+
+	var button := Button.new()
+	button.text = "%s%s\nCosto: %s\nVenta: +%s monedas\n%s" % [
+		selected_mark,
+		str(recipe["name"]),
+		_recipe_cost_text(recipe),
+		_get_dish_price(recipe_id),
+		status_text
+	]
+	button.custom_minimum_size = Vector2(0, 126)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_stylebox_override("normal", _button_style(variant, false, 0.88 if not can_cook and not selected else 1.0))
+	button.add_theme_stylebox_override("hover", _button_style(variant, false, 1.05))
+	button.add_theme_stylebox_override("pressed", _button_style(variant, false, 0.92))
+	button.add_theme_color_override("font_color", Color("#1d1b1b") if selected else Color("#e9f7ef"))
+	button.add_theme_font_size_override("font_size", 14)
+	button.clip_text = false
+	button.pressed.connect(Callable(self, "_toggle_day_menu_recipe").bind(recipe_id))
+	return button
+
+
+func _recipe_cost_text(recipe: Dictionary) -> String:
+	var parts: Array = []
+	for ingredient_item in recipe["ingredients"]:
+		var ingredient: Dictionary = ingredient_item as Dictionary
+		var amount := int(ingredient["amount"])
+		if ingredient["item"] == "placeholder_spice":
+			parts.append("%s aliño%s" % [amount, "" if amount == 1 else "s"])
+		elif ingredient.get("quality", "normal") == "premium":
+			parts.append("%s pescado premium" % amount)
+		else:
+			parts.append("%s pescado normal" % amount)
+	return " + ".join(parts)
+
+
+func _recipe_availability_text(recipe: Dictionary, selected: bool) -> String:
+	if not _can_cook(recipe):
+		return "Seleccionado · falta inventario" if selected else "No alcanza inventario"
+	return "Seleccionado" if selected else "Disponible"
 
 
 func _toggle_day_menu_recipe(recipe_id: String) -> void:
@@ -1272,6 +1408,11 @@ func _draw_menu_background() -> void:
 
 
 func _draw_fishing_background() -> void:
+	if not day.get("boat_rented", false):
+		_add_full_texture(SHIPYARD_BACKGROUND_TEXTURE)
+		_add_scene_band(Color(0.14, 0.11, 0.16, 0.34), 0.84, 1.0)
+		return
+
 	_add_full_texture(FISHING_SEASCAPE_TEXTURE)
 	_draw_animated_water()
 	_add_scene_band(Color(0.14, 0.11, 0.16, 0.42), 0.84, 1.0)
@@ -1342,7 +1483,7 @@ func _current_fishing_actor_texture() -> Texture2D:
 			return FISHING_CAST_TEXTURE
 		return FISHING_WAIT_TEXTURE
 	if fishing_phase == "breath":
-		var breath_index: int = max(1, lure_breaths_total - lure_breaths_remaining + 1)
+		var breath_index: int = ((max(0, lure_breaths_total - lure_breaths_remaining)) % 3) + 1
 		match breath_index:
 			1:
 				return FISHING_BREATH_1_TEXTURE
