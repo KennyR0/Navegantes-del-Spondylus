@@ -592,15 +592,15 @@ func _show_fishing() -> void:
 		"$%s" % save["coins"],
 		_inventory_chip_text(),
 		"Lances %s/%s" % [day["casts_left"], _get_daily_casts()]
-	])
+	], true)
 	_add_toast(message)
 
 	var controls := _bottom_controls()
 	controls.add_child(_button("Rentar barco (%s)" % BOAT_RENTAL_COST, Callable(self, "_rent_boat"), day["boat_rented"]))
-	controls.add_child(_button("Lanzar caña", Callable(self, "_cast_line"), not day["boat_rented"] or fishing_phase != "idle" or day["casts_left"] <= 0, "secondary"))
+	controls.add_child(_button("Lanzar caña", Callable(self, "_cast_line"), not day["boat_rented"] or fishing_phase != "idle" or day["casts_left"] <= 0, "cast"))
 	controls.add_child(_button("¡Jalar!", Callable(self, "_hook_fish"), fishing_phase == "idle", "danger", true))
 	controls.add_child(_button("Ir al restaurante", Callable(self, "_open_restaurant"), day["casts_left"] == _get_daily_casts() or fishing_phase != "idle"))
-	controls.add_child(_button("Volver al menu", Callable(self, "_return_to_main_menu"), false, "secondary"))
+	_add_top_menu_button()
 
 
 func _return_to_main_menu() -> void:
@@ -1609,22 +1609,22 @@ func _draw_menu_background() -> void:
 func _add_menu_birds() -> void:
 	var viewport_size := get_viewport_rect().size
 	var bird_specs := [
-		{"anchor": Vector2(0.58, 0.060), "scale": 0.045, "speed": 10.0, "phase": 0.0, "alpha": 0.80},
-		{"anchor": Vector2(0.76, 0.105), "scale": 0.052, "speed": 12.0, "phase": 1.7, "alpha": 0.86},
-		{"anchor": Vector2(0.93, 0.160), "scale": 0.060, "speed": 13.8, "phase": 3.2, "alpha": 0.78}
+		{"height": 0.105, "scale": 0.052, "duration": 8.0, "delay": 0.0, "alpha": 0.92},
+		{"height": 0.145, "scale": 0.059, "duration": 8.8, "delay": 2.7, "alpha": 0.94},
+		{"height": 0.185, "scale": 0.066, "duration": 9.6, "delay": 5.4, "alpha": 0.90}
 	]
 
 	for spec in bird_specs:
-		var anchor: Vector2 = spec["anchor"] as Vector2
-		var base := Vector2(anchor.x * viewport_size.x, anchor.y * viewport_size.y)
+		var base := Vector2(-viewport_size.x * 0.18, viewport_size.y * float(spec["height"]))
 		var bird := _create_gull_sprite(base, float(spec["scale"]), float(spec["alpha"]), true)
 		background_layer.add_child(bird)
 
 		menu_birds.append({
 			"node": bird,
 			"base": base,
-			"speed": float(spec["speed"]),
-			"phase": float(spec["phase"])
+			"duration": float(spec["duration"]),
+			"delay": float(spec["delay"]),
+			"height": float(spec["height"])
 		})
 
 
@@ -1666,12 +1666,23 @@ func _animate_menu_scene(delta: float) -> void:
 		var bird: Sprite2D = bird_data["node"] as Sprite2D
 		if not is_instance_valid(bird):
 			continue
-		var phase := menu_animation_time * 3.6 + float(bird_data["phase"])
-		var drift := fmod(menu_animation_time * float(bird_data["speed"]) + float(bird_data["phase"]) * 16.0, 78.0)
-		var base: Vector2 = bird_data["base"] as Vector2
-		_set_gull_flight_frame(bird, phase, true)
-		bird.position = base + Vector2(drift - 39.0, sin(phase * 0.38) * 4.0)
-		bird.rotation_degrees = sin(phase * 0.31) * 1.2
+		var viewport_size := get_viewport_rect().size
+		var duration := float(bird_data["duration"])
+		var cycle := duration + 2.0
+		var elapsed := fmod(menu_animation_time + float(bird_data["delay"]), cycle)
+		if elapsed > duration:
+			bird.visible = false
+			continue
+
+		bird.visible = true
+		var progress := elapsed / duration
+		var phase := progress * TAU
+		_set_gull_flight_frame(bird, menu_animation_time * 2.4 + float(bird_data["delay"]), true)
+		bird.position = Vector2(
+			lerpf(-0.18, 1.18, progress) * viewport_size.x,
+			(float(bird_data["height"]) + sin(phase * 1.25) * 0.010) * viewport_size.y
+		)
+		bird.rotation_degrees = sin(phase * 0.9) * 1.6
 
 	for wave_data in menu_waves:
 		var wave: Line2D = wave_data["node"] as Line2D
@@ -1776,8 +1787,9 @@ func _create_gull_sprite(position: Vector2, sprite_scale: float, alpha: float, f
 	return sprite
 
 
-func _set_gull_flight_frame(sprite: Sprite2D, phase: float, fly_right := true) -> void:
-	var frame := int(floor(phase * 2.0)) % 4
+func _set_gull_flight_frame(sprite: Sprite2D, phase: float, fly_right := true, allow_dive := true) -> void:
+	var frame_count := 4 if allow_dive else 3
+	var frame := int(floor(phase * 2.0)) % frame_count
 	var native_faces_right := false
 	if frame == 0:
 		sprite.texture = GULL_FLAP_UP_TEXTURE
@@ -2384,11 +2396,11 @@ func _center_text(text: String, font_size: int, color: Color, anchor: Vector2) -
 	return label
 
 
-func _add_top_bar(items: Array) -> void:
+func _add_top_bar(items: Array, reserve_right_space := false) -> void:
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	margin.add_theme_constant_override("margin_left", 12)
-	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_right", 84 if reserve_right_space else 12)
 	margin.add_theme_constant_override("margin_top", 10)
 	ui_layer.add_child(margin)
 
@@ -2404,6 +2416,22 @@ func _add_top_bar(items: Array) -> void:
 		chip.custom_minimum_size = Vector2(104, 32)
 		chip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		row.add_child(chip)
+
+
+func _add_top_menu_button() -> void:
+	var button := _button("menu", Callable(self, "_return_to_main_menu"), false, "secondary")
+	button.custom_minimum_size = Vector2(68, 36)
+	button.z_index = 50
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.anchor_left = 1.0
+	button.anchor_right = 1.0
+	button.anchor_top = 0.0
+	button.anchor_bottom = 0.0
+	button.offset_left = -80
+	button.offset_right = -12
+	button.offset_top = 10
+	button.offset_bottom = 46
+	ui_layer.add_child(button)
 
 
 func _add_toast(text: String) -> void:
@@ -2802,6 +2830,8 @@ func _button_style(variant: String, disabled: bool, multiplier := 1.0) -> StyleB
 		color = Color("#d84a3a")
 	elif variant == "upgrade":
 		color = Color("#2f7f43")
+	elif variant == "cast":
+		color = Color("#0f6f7d")
 	if disabled:
 		color = color.darkened(0.45)
 	elif multiplier > 1.0:
