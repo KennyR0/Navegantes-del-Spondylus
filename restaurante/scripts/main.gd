@@ -808,13 +808,73 @@ func _show_menu() -> void:
 	_reset_screen()
 	_draw_menu_background()
 
-	_add_menu_hotspot(Vector2(0.05, 0.565), Vector2(0.37, 0.635), Callable(self, "_start_fresh_run"))
+	_add_menu_hotspot(Vector2(0.05, 0.565), Vector2(0.37, 0.635), Callable(self, "_request_fresh_run"))
 	_add_menu_hotspot(Vector2(0.05, 0.650), Vector2(0.37, 0.720), Callable(self, "_continue_saved_run"), not _has_saved_run())
 	_add_menu_hotspot(Vector2(0.05, 0.727), Vector2(0.37, 0.770), Callable(self, "_show_settings"))
 	_add_menu_hotspot(Vector2(0.05, 0.775), Vector2(0.37, 0.850), Callable(self, "_quit_game"))
 
 	if message != "":
 		_add_menu_notice(message)
+
+
+func _request_fresh_run() -> void:
+	if _has_saved_run() or not day.is_empty():
+		_show_new_run_confirmation()
+		return
+	_start_fresh_run()
+
+
+func _show_new_run_confirmation() -> void:
+	var overlay := Control.new()
+	overlay.name = "NewRunConfirmation"
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.z_index = 100
+	ui_layer.add_child(overlay)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0.02, 0.06, 0.08, 0.58)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(dim)
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 18)
+	margin.add_theme_constant_override("margin_right", 18)
+	margin.add_theme_constant_override("margin_top", 18)
+	margin.add_theme_constant_override("margin_bottom", 18)
+	overlay.add_child(margin)
+
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	margin.add_child(center)
+
+	var panel_container := PanelContainer.new()
+	panel_container.custom_minimum_size = Vector2(minf(460.0, get_viewport_rect().size.x - 36.0), 0)
+	panel_container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	panel_container.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	panel_container.add_theme_stylebox_override("panel", _panel_style())
+	center.add_child(panel_container)
+
+	var panel := VBoxContainer.new()
+	panel.add_theme_constant_override("separation", 12)
+	panel_container.add_child(panel)
+
+	var title := _label("Nueva partida", 24, Color("#f6c177"), true)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	panel.add_child(title)
+
+	var body := _label("Ya tienes una partida iniciada. Si empiezas una nueva, se reemplazara el progreso actual.", 15, Color("#e9f7ef"))
+	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	panel.add_child(body)
+
+	var controls := _button_row()
+	controls.add_child(_button("Cancelar", Callable(self, "_show_menu"), false, "secondary"))
+	controls.add_child(_button("Iniciar", Callable(self, "_start_fresh_run"), false, "danger"))
+	panel.add_child(controls)
 
 
 func _show_settings() -> void:
