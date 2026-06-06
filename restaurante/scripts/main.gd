@@ -1649,13 +1649,12 @@ func _show_restaurant_v2() -> void:
 	_draw_restaurant_status()
 	_draw_stove_status()
 
-	var panel := _bottom_panel(600)
-	panel.add_child(_label("Cocina del puesto", 18, Color("#f6c177"), true))
-	panel.add_child(_small_stat("Pedidos", _customer_summary()))
+	var panel := _bottom_panel(560)
+	panel.add_child(_restaurant_panel_header())
 
 	var cook_row := HFlowContainer.new()
-	cook_row.add_theme_constant_override("h_separation", 6)
-	cook_row.add_theme_constant_override("v_separation", 4)
+	cook_row.add_theme_constant_override("h_separation", 8)
+	cook_row.add_theme_constant_override("v_separation", 6)
 	cook_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for recipe_id in restaurant.get("day_menu", []):
 		var recipe_data: Dictionary = _get_recipe(str(recipe_id))
@@ -1674,8 +1673,86 @@ func _show_restaurant_v2() -> void:
 	panel.add_child(deliver_row)
 
 	var close_row := _button_row()
-	close_row.add_child(_button("Cerrar día", Callable(self, "_show_summary"), false, "danger"))
+	close_row.add_child(_button("Cerrar dia", Callable(self, "_show_summary"), false, "danger"))
 	panel.add_child(close_row)
+
+
+func _restaurant_panel_header() -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 10)
+
+	var title := _label("Cocina del puesto", 16, Color("#f6c177"), true)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.autowrap_mode = TextServer.AUTOWRAP_OFF
+	title.clip_text = true
+	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	row.add_child(title)
+
+	var served := _label("Atendidos %s/%s" % [day["summary"]["served"], DAILY_CUSTOMERS], 13, Color("#e9f7ef"), true)
+	served.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	served.autowrap_mode = TextServer.AUTOWRAP_OFF
+	served.clip_text = true
+	served.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	row.add_child(served)
+	return row
+
+
+func _customer_order_card(customer: Dictionary, compact := false) -> PanelContainer:
+	var recipe: Dictionary = _get_recipe(customer["order_recipe_id"])
+	var served := bool(customer["served"])
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(156 if compact else 190, 54 if compact else 62)
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	card.add_theme_stylebox_override("panel", _customer_order_card_style(served))
+
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 8)
+	card.add_child(row)
+
+	var plate := TextureRect.new()
+	plate.texture = _raw_dish_texture(str(recipe["id"]))
+	plate.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	plate.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	plate.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	plate.custom_minimum_size = Vector2(38, 34) if compact else Vector2(48, 42)
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(plate)
+
+	var text_column := VBoxContainer.new()
+	text_column.alignment = BoxContainer.ALIGNMENT_CENTER
+	text_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_column.add_theme_constant_override("separation", 1)
+	row.add_child(text_column)
+
+	var customer_label := _label("C%s pide" % customer["id"], 10 if compact else 11, Color("#f6c177"), true)
+	customer_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	customer_label.clip_text = true
+	customer_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	text_column.add_child(customer_label)
+
+	var dish_label := _label(str(recipe["short_name"]), 13 if compact else 16, Color("#fff7db"), true)
+	dish_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	dish_label.clip_text = true
+	dish_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	text_column.add_child(dish_label)
+
+	var state_label := _label(_customer_order_state_text(customer), 10 if compact else 11, Color("#67d391") if served else Color("#e9f7ef"), true)
+	state_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	state_label.clip_text = true
+	state_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	text_column.add_child(state_label)
+	return card
+
+
+func _customer_order_state_text(customer: Dictionary) -> String:
+	if bool(customer["served"]):
+		return "Atendido %s" % _face_for(str(customer["satisfaction"]))
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var patience_left: int = max(0, ceili(customer["patience_seconds"] - (now - customer["arrived_at"])))
+	return "%ss de paciencia" % patience_left
 
 
 func _start_cooking(recipe_id: String) -> void:
@@ -1704,11 +1781,11 @@ func _start_cooking_on_stove(recipe_id: String, stove_id: int) -> void:
 	var recipe: Dictionary = _get_recipe(recipe_id)
 	var stove: Dictionary = _find_stove(stove_id)
 	if stove.is_empty():
-		message = "Esa hornilla no estÃ¡ disponible."
+		message = "Esa hornilla no esta disponible."
 		_show_restaurant()
 		return
 	if stove["recipe_id"] != "":
-		message = "La hornilla %s estÃ¡ ocupada." % (stove_id + 1)
+		message = "La hornilla %s esta ocupada." % (stove_id + 1)
 		_show_restaurant()
 		return
 	if not _consume_recipe(recipe):
@@ -2581,7 +2658,6 @@ func _client_placeholder_texture(customer_id: int) -> Texture2D:
 func _draw_seated_customers() -> void:
 	var positions: Array = _restaurant_table_positions()
 	var seated_index := 0
-	var now: float = Time.get_ticks_msec() / 1000.0
 	for customer_item in restaurant.get("customers", []):
 		var customer: Dictionary = customer_item as Dictionary
 		if customer["state"] == "waiting_to_arrive":
@@ -2591,33 +2667,23 @@ func _draw_seated_customers() -> void:
 		var customer_position: Vector2 = base_position + offset
 		var customer_id: int = int(customer["id"])
 		_add_texture(_client_placeholder_texture(customer_id), customer_position, Vector2(0.42, 0.62), 1.0)
-		_add_customer_table_label(customer, customer_position + Vector2(0.0, -0.055), now)
+		_add_customer_table_label(customer, customer_position + Vector2(0.0, -0.075))
 		seated_index += 1
 
 
-func _add_customer_table_label(customer: Dictionary, anchor: Vector2, now: float) -> void:
-	var recipe: Dictionary = _get_recipe(customer["order_recipe_id"])
-	var status_text := ""
-	if customer["served"]:
-		status_text = "%s %s" % [recipe["short_name"], _face_for(customer["satisfaction"])]
-	else:
-		var patience_left: int = max(0, ceili(customer["patience_seconds"] - (now - customer["arrived_at"])))
-		status_text = "%s · %ss" % [recipe["short_name"], patience_left]
-
+func _add_customer_table_label(customer: Dictionary, anchor: Vector2) -> void:
 	var container := CenterContainer.new()
 	container.anchor_left = anchor.x
 	container.anchor_right = anchor.x
 	container.anchor_top = anchor.y
 	container.anchor_bottom = anchor.y
-	container.offset_left = -58
-	container.offset_right = 58
-	container.offset_top = -22
-	container.offset_bottom = 22
+	container.offset_left = -88
+	container.offset_right = 88
+	container.offset_top = -34
+	container.offset_bottom = 24
 	background_layer.add_child(container)
 
-	var chip := _text_panel(status_text, 11, Color("#e9f7ef"), true)
-	chip.custom_minimum_size = Vector2(108, 32)
-	container.add_child(chip)
+	container.add_child(_customer_order_card(customer, true))
 
 
 func _draw_summary_background() -> void:
@@ -3266,6 +3332,16 @@ func _stove_drop_slot_style(stove: Dictionary) -> StyleBoxFlat:
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(5)
 	_set_style_margins(style, 4)
+	return style
+
+
+func _customer_order_card_style(served: bool) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.03, 0.12, 0.15, 0.92) if served else Color(0.08, 0.24, 0.25, 0.94)
+	style.border_color = Color("#67d391") if served else Color("#f4d58d")
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	_set_style_margins(style, 6)
 	return style
 
 
