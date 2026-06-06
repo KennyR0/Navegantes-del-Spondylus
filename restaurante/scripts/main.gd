@@ -652,13 +652,19 @@ func _play_rent_boat_animation() -> void:
 
 	var video_stream = load(RENT_BOAT_ANIMATION_PATH) if ResourceLoader.exists(RENT_BOAT_ANIMATION_PATH) else null
 	if video_stream is VideoStream:
+		var video_frame := Control.new()
+		video_frame.custom_minimum_size = Vector2(0, minf(360.0, get_viewport_rect().size.y * 0.48))
+		video_frame.clip_contents = true
+		video_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		content.add_child(video_frame)
+
 		var player := VideoStreamPlayer.new()
 		player.stream = video_stream
 		player.expand = true
-		player.custom_minimum_size = Vector2(0, minf(360.0, get_viewport_rect().size.y * 0.48))
-		player.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		player.set_anchors_preset(Control.PRESET_FULL_RECT)
 		player.finished.connect(_finish_rent_boat_animation)
-		content.add_child(player)
+		video_frame.add_child(player)
+		_add_rent_boat_skip_button(video_frame)
 		player.play()
 		rent_boat_animation_timer.wait_time = RENT_BOAT_ANIMATION_SAFETY_SECONDS
 	else:
@@ -707,12 +713,32 @@ func _add_rent_boat_fallback_animation(content: VBoxContainer) -> void:
 	splash.set_anchors_preset(Control.PRESET_FULL_RECT)
 	splash.anchor_top = 0.62
 	area.add_child(splash)
+	_add_rent_boat_skip_button(area)
 
 	var tween := create_tween()
 	tween.set_parallel(true)
 	tween.tween_property(boat, "position", Vector2(500, 46), 2.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_property(boat, "rotation_degrees", 4.0, 1.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	tween.chain().tween_property(boat, "rotation_degrees", -2.5, 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func _add_rent_boat_skip_button(parent: Control) -> void:
+	var skip_button := Button.new()
+	skip_button.text = "Saltar"
+	skip_button.custom_minimum_size = Vector2(84, 34)
+	skip_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	skip_button.add_theme_stylebox_override("normal", _button_style("secondary", false, 0.92))
+	skip_button.add_theme_stylebox_override("hover", _button_style("secondary", false, 1.08))
+	skip_button.add_theme_stylebox_override("pressed", _button_style("secondary", false, 0.78))
+	skip_button.add_theme_color_override("font_color", Color("#e9f7ef"))
+	skip_button.add_theme_font_size_override("font_size", 13)
+	skip_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	skip_button.offset_left = -96
+	skip_button.offset_top = -54
+	skip_button.offset_right = -12
+	skip_button.offset_bottom = -20
+	skip_button.pressed.connect(_finish_rent_boat_animation)
+	parent.add_child(skip_button)
 
 
 func _finish_rent_boat_animation() -> void:
