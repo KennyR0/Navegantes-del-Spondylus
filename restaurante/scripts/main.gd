@@ -22,10 +22,13 @@ const RENT_BOAT_ANIMATION_FALLBACK_SECONDS := 2.4
 const RENT_BOAT_ANIMATION_SAFETY_SECONDS := 8.0
 const WATER_SURFACE_TOP := 0.615
 const BOAT_ANCHOR := Vector2(0.46, 0.72)
-const FISHERMAN_ANCHOR := Vector2(0.458, 0.665)
-const FISHING_ROD_TIP_ANCHOR := Vector2(0.505, 0.625)
-const LURE_SURFACE_ANCHOR := Vector2(0.595, 0.735)
-const FISH_ANCHOR := Vector2(0.61, 0.79)
+const FISHERMAN_ANCHOR := Vector2(0.455, 0.682)
+const FISHERMAN_SCALE := Vector2(1.18, 1.57)
+const FISHING_ACTOR_BASE_SIZE := Vector2(160, 120)
+const FISHING_ROD_TIP_ANCHOR := Vector2(0.575, 0.645)
+const FISHERMAN_FRAME_SECONDS := 0.34
+const LURE_SURFACE_ANCHOR := Vector2(0.675, 0.735)
+const FISH_ANCHOR := Vector2(0.69, 0.755)
 
 const WATER_TEXTURE := preload("res://assets/craftpix/3 Objects/Water.png")
 const HUT_TEXTURE := preload("res://assets/craftpix/3 Objects/Fishing_hut.png")
@@ -1709,11 +1712,9 @@ func _draw_fishing_background() -> void:
 	_add_full_texture(FISHING_SEASCAPE_TEXTURE)
 	_draw_animated_water()
 	_add_scene_band(Color(0.14, 0.11, 0.16, 0.42), 0.84, 1.0)
-	var boat_bob: float = sin(_now_seconds() * 1.8) * 0.006
-	var boat_tilt: float = sin(_now_seconds() * 1.35) * 1.1
-	if fishing_phase == "bite":
-		boat_tilt += sin(_now_seconds() * 16.0) * 1.2
-	_add_texture(BOAT_TEXTURE, BOAT_ANCHOR + Vector2(0.0, boat_bob), Vector2(2.0, 2.0), 1.0, boat_tilt)
+	var boat_anchor := BOAT_ANCHOR
+	var boat_scale := Vector2(2.28, 2.28)
+	_add_texture(BOAT_TEXTURE, boat_anchor, boat_scale, 1.0, 0.0)
 	_draw_fisherman()
 	var fish_texture: Texture2D = FISH_PREMIUM_TEXTURE if fishing_phase == "bite" else FISH_NORMAL_TEXTURE
 	var fish_alpha: float = 0.9 if fishing_phase == "bite" else 0.34
@@ -1725,70 +1726,82 @@ func _draw_fishing_background() -> void:
 
 func _draw_fisherman() -> void:
 	var fisher_texture: Texture2D = _current_fishing_actor_texture()
-	var time: float = _now_seconds()
-	var anchor: Vector2 = Vector2(0.45, 0.665)
-	var scale: Vector2 = Vector2(1.82, 2.35)
-	var rotation: float = 0.0
-	var alpha: float = 1.0
+	var anchor := FISHERMAN_ANCHOR
+	var rotation := 0.0
+	if fishing_phase == "bite" or (_now_seconds() - last_catch_started_at <= CATCH_REACTION_SECONDS and (last_catch_result == "perfect" or last_catch_result == "good")):
+		var shake := sin(_now_seconds() * 38.0)
+		anchor += Vector2(shake * 0.004, sin(_now_seconds() * 52.0) * 0.003)
+		rotation = shake * 2.4
+	_add_fishing_actor_texture(fisher_texture, anchor, FISHERMAN_SCALE * _fishing_actor_frame_scale(fisher_texture), 1.0, rotation)
 
-	if fishing_phase == "idle":
-		var reaction_elapsed: float = time - last_catch_started_at
-		if reaction_elapsed <= CATCH_REACTION_SECONDS:
-			var reaction_ratio: float = clampf(reaction_elapsed / CATCH_REACTION_SECONDS, 0.0, 1.0)
-			var hop: float = sin(reaction_ratio * PI) * 0.038
-			if last_catch_result == "perfect":
-				anchor += Vector2(sin(time * 16.0) * 0.004, -hop * 0.45)
-				scale += Vector2(0.1, 0.18) * sin(reaction_ratio * PI)
-				rotation = sin(time * 18.0) * 2.4
-			elif last_catch_result == "good":
-				anchor += Vector2(0.0, -hop * 0.35)
-				rotation = sin(time * 12.0) * 1.4
-			elif last_catch_result == "early" or last_catch_result == "fail":
-				anchor += Vector2(0.0, hop * 0.25)
-				scale += Vector2(0.04, -0.1) * sin(reaction_ratio * PI)
-				rotation = -3.0 * sin(reaction_ratio * PI)
-		else:
-			anchor += Vector2(0.0, sin(time * 2.2) * 0.004)
-			scale += Vector2(0.025, -0.035) * sin(time * 2.2)
-	elif fishing_phase == "waiting":
-		var sway: float = sin((time - lure_motion_started_at) * 5.0)
-		anchor += Vector2(sway * 0.004, sin(time * 4.0) * 0.004)
-		rotation = sway * 1.7
-	elif fishing_phase == "breath":
-		var breath_ratio: float = _lure_motion_ratio()
-		var recoil: float = sin(breath_ratio * PI)
-		anchor += Vector2(-0.012 * recoil, -0.01 * recoil)
-		scale += Vector2(0.08, -0.08) * recoil
-		rotation = -5.0 * recoil
-	elif fishing_phase == "bite":
-		var bite_ratio: float = clampf(_bite_elapsed() / _get_good_window_seconds(), 0.0, 1.0)
-		var shake: float = sin(time * 34.0) * (1.0 - bite_ratio)
-		anchor += Vector2(0.014 + shake * 0.004, -0.015)
-		scale += Vector2(-0.04, 0.08)
-		rotation = 7.0 + shake * 2.0
 
-	_add_texture(fisher_texture, anchor, scale, alpha, rotation)
+func _add_fishing_actor_texture(texture: Texture2D, anchor: Vector2, scale: Vector2, alpha: float, rotation_degrees_value := 0.0) -> void:
+	var rect := TextureRect.new()
+	rect.texture = texture
+	rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	rect.modulate.a = alpha
+	rect.rotation_degrees = rotation_degrees_value
+	rect.anchor_left = anchor.x
+	rect.anchor_right = anchor.x
+	rect.anchor_top = anchor.y
+	rect.anchor_bottom = anchor.y
+	rect.custom_minimum_size = FISHING_ACTOR_BASE_SIZE * scale
+	rect.pivot_offset = rect.custom_minimum_size * 0.5
+	rect.offset_left = -rect.custom_minimum_size.x / 2.0
+	rect.offset_right = rect.custom_minimum_size.x / 2.0
+	rect.offset_top = -rect.custom_minimum_size.y / 2.0
+	rect.offset_bottom = rect.custom_minimum_size.y / 2.0
+	background_layer.add_child(rect)
+
+
+func _fishing_actor_frame_scale(texture: Texture2D) -> Vector2:
+	if texture == FISHING_CAST_TEXTURE:
+		return Vector2(1.28, 1.0)
+	if texture == FISHING_WAIT_TEXTURE:
+		return Vector2(1.32, 1.0)
+	if texture == FISHING_BREATH_1_TEXTURE or texture == FISHING_BREATH_2_TEXTURE or texture == FISHING_BREATH_3_TEXTURE:
+		return Vector2(1.22, 1.0)
+	if texture == FISHING_BITE_TEXTURE:
+		return Vector2(1.12, 1.0)
+	if texture == FISHING_PULL_TEXTURE:
+		return Vector2(1.20, 1.0)
+	return Vector2.ONE
 
 
 func _current_fishing_actor_texture() -> Texture2D:
 	if fishing_phase == "waiting":
 		if _now_seconds() - cast_started_at < 0.65:
 			return FISHING_CAST_TEXTURE
-		return FISHING_WAIT_TEXTURE
+		return _animated_waiting_fishing_texture()
 	if fishing_phase == "breath":
-		var breath_index: int = ((max(0, lure_breaths_total - lure_breaths_remaining)) % 3) + 1
-		match breath_index:
-			1:
-				return FISHING_BREATH_1_TEXTURE
-			2:
-				return FISHING_BREATH_2_TEXTURE
-			_:
-				return FISHING_BREATH_3_TEXTURE
+		return _animated_breath_fishing_texture()
 	if fishing_phase == "bite":
 		return FISHING_BITE_TEXTURE
 	if _now_seconds() - last_catch_started_at <= CATCH_REACTION_SECONDS and (last_catch_result == "perfect" or last_catch_result == "good"):
 		return FISHING_PULL_TEXTURE
 	return FISHING_REST_TEXTURE
+
+
+func _animated_waiting_fishing_texture() -> Texture2D:
+	var frame := int(floor((_now_seconds() - cast_started_at) / FISHERMAN_FRAME_SECONDS)) % 4
+	if frame == 0:
+		return FISHING_WAIT_TEXTURE
+	if frame == 1:
+		return FISHING_BREATH_1_TEXTURE
+	if frame == 2:
+		return FISHING_BREATH_2_TEXTURE
+	return FISHING_BREATH_3_TEXTURE
+
+
+func _animated_breath_fishing_texture() -> Texture2D:
+	var frame := int(floor(_now_seconds() / (FISHERMAN_FRAME_SECONDS * 0.72))) % 3
+	if frame == 0:
+		return FISHING_BREATH_1_TEXTURE
+	if frame == 1:
+		return FISHING_BREATH_2_TEXTURE
+	return FISHING_BREATH_3_TEXTURE
 
 
 func _fishing_actor_frame_has_tackle() -> bool:
