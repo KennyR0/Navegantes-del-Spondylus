@@ -955,11 +955,7 @@ func _show_menu() -> void:
 	_reset_screen()
 	_draw_menu_background()
 
-<<<<<<< Updated upstream
 	_add_menu_hotspot(Vector2(0.05, 0.565), Vector2(0.37, 0.635), Callable(self, "_request_fresh_run"))
-=======
-	_add_menu_hotspot(Vector2(0.05, 0.565), Vector2(0.37, 0.635), Callable(self, "_start_intro"))
->>>>>>> Stashed changes
 	_add_menu_hotspot(Vector2(0.05, 0.650), Vector2(0.37, 0.720), Callable(self, "_continue_saved_run"), not _has_saved_run())
 	_add_menu_hotspot(Vector2(0.05, 0.727), Vector2(0.37, 0.770), Callable(self, "_show_settings"))
 	_add_menu_hotspot(Vector2(0.05, 0.775), Vector2(0.37, 0.850), Callable(self, "_quit_game"))
@@ -972,7 +968,7 @@ func _request_fresh_run() -> void:
 	if _has_saved_run() or not day.is_empty():
 		_show_new_run_confirmation()
 		return
-	_start_fresh_run()
+	_start_intro()
 
 
 func _show_new_run_confirmation() -> void:
@@ -1024,7 +1020,7 @@ func _show_new_run_confirmation() -> void:
 
 	var controls := _button_row()
 	controls.add_child(_button("Cancelar", Callable(self, "_show_menu"), false, "secondary"))
-	controls.add_child(_button("Iniciar", Callable(self, "_start_fresh_run"), false, "danger"))
+	controls.add_child(_button("Iniciar", Callable(self, "_start_intro"), false, "danger"))
 	panel.add_child(controls)
 
 
