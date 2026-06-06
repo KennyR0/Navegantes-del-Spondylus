@@ -554,7 +554,9 @@ func _start_fresh_run() -> void:
 
 
 func _start_next_day() -> void:
+	var carried_inventory := _current_inventory_copy()
 	day = _create_new_day()
+	day["inventory"] = carried_inventory
 	restaurant = {}
 	selected_day_menu = []
 	fishing_phase = "idle"
@@ -563,6 +565,20 @@ func _start_next_day() -> void:
 	summary_finalized = false
 	_show_fishing()
 	_persist_save()
+
+
+func _current_inventory_copy() -> Dictionary:
+	if day.is_empty() or typeof(day.get("inventory", null)) != TYPE_DICTIONARY:
+		return {
+			"normal_fish": 0,
+			"premium_fish": 0
+		}
+
+	var inventory: Dictionary = day["inventory"] as Dictionary
+	return {
+		"normal_fish": max(0, int(inventory.get("normal_fish", 0))),
+		"premium_fish": max(0, int(inventory.get("premium_fish", 0)))
+	}
 
 
 func _should_show_first_day_tutorial() -> bool:
