@@ -67,6 +67,8 @@ const CLIENT_PLACEHOLDER_1_TEXTURE := preload("res://assets/restaurant/client_pl
 const CLIENT_PLACEHOLDER_2_TEXTURE := preload("res://assets/restaurant/client_placeholder_2.png")
 const CLIENT_PLACEHOLDER_3_TEXTURE := preload("res://assets/restaurant/client_placeholder_3.png")
 const CLIENT_PLACEHOLDER_4_TEXTURE := preload("res://assets/restaurant/client_placeholder_4.png")
+const CEVICHE_MANTA_TEXTURE := preload("res://assets/protagonist/ceviche_manta.png")
+const PARGO_PREMIUM_TEXTURE := preload("res://assets/protagonist/pargo_premium.png")
 const MAX_DAY_MENU_RECIPES := 3
 const DAILY_CUSTOMERS := 4
 const FIRST_CUSTOMER_DELAY_SECONDS := 1.4
@@ -916,16 +918,24 @@ func _show_menu_setup() -> void:
 	])
 	_add_toast(message)
 
-	var panel := _bottom_panel(620)
-	panel.add_child(_label("Menú del día", 22, Color("#f6c177"), true))
-	panel.add_child(_text_panel("Elige hasta 3 platos. Cocina pescado y sirve rápido.", 13, Color("#e9f7ef"), true))
+	var panel := _day_menu_panel()
+	var port_label := _label("Puerto de Manta", 13, Color("#f4d58d"), true)
+	port_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	panel.add_child(port_label)
 
-	var recipe_grid := _button_row()
+	var title := _label("Carta del muelle", 30, Color("#fff7db"), true)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	panel.add_child(title)
+	panel.add_child(_day_menu_rule())
+
 	for recipe_item in RECIPES:
 		var recipe_data: Dictionary = recipe_item as Dictionary
 		if save["unlocked_recipes"].has(recipe_data["id"]):
-			recipe_grid.add_child(_recipe_menu_card(recipe_data))
-	panel.add_child(recipe_grid)
+			panel.add_child(_recipe_menu_card(recipe_data))
+
+	var hint := _label("Elige hasta 3 platos con la pesca fresca del día", 14, Color("#d8f3dc"), true)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	panel.add_child(hint)
 
 	var start_row := _button_row()
 	start_row.add_child(_button("Abrir cocina", Callable(self, "_start_restaurant_day"), selected_day_menu.is_empty()))
@@ -937,27 +947,108 @@ func _recipe_menu_card(recipe: Dictionary) -> Button:
 	var recipe_id := str(recipe["id"])
 	var selected := selected_day_menu.has(recipe_id)
 	var can_cook := _can_cook(recipe)
-	var variant := "primary" if selected else "secondary"
 	var status_text := _recipe_availability_text(recipe, selected)
-	var selected_mark := "[x] " if selected else ""
 
 	var button := Button.new()
-	button.text = "%s%s\n%s | $%s\n%s" % [
-		selected_mark,
-		str(recipe["name"]),
-		_recipe_cost_text(recipe),
-		_get_dish_price(recipe_id),
-		status_text
-	]
-	button.custom_minimum_size = Vector2(0, 96)
+	button.text = ""
+	button.custom_minimum_size = Vector2(0, 108)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.add_theme_stylebox_override("normal", _button_style(variant, false, 0.88 if not can_cook and not selected else 1.0))
-	button.add_theme_stylebox_override("hover", _button_style(variant, false, 1.05))
-	button.add_theme_stylebox_override("pressed", _button_style(variant, false, 0.92))
-	button.add_theme_color_override("font_color", Color("#1d1b1b") if selected else Color("#e9f7ef"))
-	button.add_theme_font_size_override("font_size", 13)
-	button.clip_text = false
+	button.add_theme_stylebox_override("normal", _day_menu_choice_style(selected, not can_cook and not selected, 1.0))
+	button.add_theme_stylebox_override("hover", _day_menu_choice_style(selected, not can_cook and not selected, 1.06))
+	button.add_theme_stylebox_override("pressed", _day_menu_choice_style(selected, not can_cook and not selected, 0.92))
 	button.pressed.connect(Callable(self, "_toggle_day_menu_recipe").bind(recipe_id))
+
+	var content_margin := MarginContainer.new()
+	content_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	content_margin.add_theme_constant_override("margin_left", 10)
+	content_margin.add_theme_constant_override("margin_top", 8)
+	content_margin.add_theme_constant_override("margin_right", 10)
+	content_margin.add_theme_constant_override("margin_bottom", 8)
+	content_margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(content_margin)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content_margin.add_child(row)
+
+	var icon_slot := PanelContainer.new()
+	icon_slot.custom_minimum_size = Vector2(58, 58)
+	icon_slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	icon_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon_slot.add_theme_stylebox_override("panel", _day_menu_icon_slot_style(selected))
+	row.add_child(icon_slot)
+
+	if recipe_id == "ceviche_manta":
+		var ceviche_texture := TextureRect.new()
+		ceviche_texture.texture = CEVICHE_MANTA_TEXTURE
+		ceviche_texture.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		ceviche_texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ceviche_texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ceviche_texture.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		ceviche_texture.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		ceviche_texture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_slot.add_child(ceviche_texture)
+	elif recipe_id == "encebollado_pochita":
+		var encebollado_texture := TextureRect.new()
+		encebollado_texture.texture = DISH_REFERENCE_TEXTURE
+		encebollado_texture.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		encebollado_texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		encebollado_texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		encebollado_texture.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		encebollado_texture.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		encebollado_texture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_slot.add_child(encebollado_texture)
+	elif recipe_id == "pargo_premium":
+		var pargo_texture := TextureRect.new()
+		pargo_texture.texture = PARGO_PREMIUM_TEXTURE
+		pargo_texture.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		pargo_texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pargo_texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pargo_texture.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pargo_texture.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		pargo_texture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_slot.add_child(pargo_texture)
+	else:
+		var icon_label := _label("PLATO", 10, Color("#fff7db"), true)
+		icon_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		icon_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		icon_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_slot.add_child(icon_label)
+
+	var text_column := VBoxContainer.new()
+	text_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	text_column.alignment = BoxContainer.ALIGNMENT_CENTER
+	text_column.add_theme_constant_override("separation", 4)
+	text_column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(text_column)
+
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 8)
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	text_column.add_child(header)
+
+	var name_label := _label(str(recipe["name"]), 15, Color("#f9f5eb"), true)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header.add_child(name_label)
+
+	var price_label := _label("$%s" % _get_dish_price(recipe_id), 15, Color("#f9f5eb"), true)
+	price_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	price_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header.add_child(price_label)
+
+	var cost_label := _label(_recipe_cost_text(recipe), 13, Color("#f9f5eb"))
+	cost_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	text_column.add_child(cost_label)
+
+	var status_label := _label(status_text, 13, Color("#f6c177") if selected else Color("#f9f5eb"), true)
+	status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	text_column.add_child(status_label)
 	return button
 
 
@@ -2423,6 +2514,45 @@ func _bottom_panel(width := 460) -> VBoxContainer:
 	return panel
 
 
+func _day_menu_panel() -> VBoxContainer:
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_top", 78)
+	margin.add_theme_constant_override("margin_bottom", 22)
+	ui_layer.add_child(margin)
+
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	margin.add_child(center)
+
+	var viewport_width: float = get_viewport_rect().size.x
+	var panel_width: float = minf(520.0, maxf(300.0, viewport_width - 24.0))
+
+	var panel_container := PanelContainer.new()
+	panel_container.custom_minimum_size = Vector2(panel_width, 0)
+	panel_container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	panel_container.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	panel_container.add_theme_stylebox_override("panel", _day_menu_panel_style())
+	center.add_child(panel_container)
+
+	var panel := VBoxContainer.new()
+	panel.add_theme_constant_override("separation", 8)
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel_container.add_child(panel)
+	return panel
+
+
+func _day_menu_rule() -> ColorRect:
+	var rule := ColorRect.new()
+	rule.color = Color("#f4d58d")
+	rule.custom_minimum_size = Vector2(0, 2)
+	rule.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return rule
+
+
 func _bottom_controls() -> GridContainer:
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -2592,6 +2722,46 @@ func _light_panel_style() -> StyleBoxFlat:
 	style.set_border_width_all(3)
 	style.set_corner_radius_all(8)
 	_set_style_margins(style, 7)
+	return style
+
+
+func _day_menu_panel_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("#123d46")
+	style.border_color = Color("#f4d58d")
+	style.set_border_width_all(3)
+	style.set_corner_radius_all(2)
+	_set_style_margins(style, 10)
+	return style
+
+
+func _day_menu_choice_style(selected: bool, muted: bool, multiplier := 1.0) -> StyleBoxFlat:
+	var color := Color("#8f9f91")
+	if selected:
+		color = Color("#2f7f73")
+	if muted:
+		color = Color("#687a73")
+	if multiplier > 1.0:
+		color = color.lightened(multiplier - 1.0)
+	elif multiplier < 1.0:
+		color = color.darkened(1.0 - multiplier)
+
+	var style := StyleBoxFlat.new()
+	style.bg_color = color
+	style.border_color = Color("#f4d58d") if selected else Color("#b98b4b")
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(2)
+	_set_style_margins(style, 0)
+	return style
+
+
+func _day_menu_icon_slot_style(selected: bool) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("#06252d")
+	style.border_color = Color("#f4d58d") if selected else Color("#d8f3dc")
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(2)
+	_set_style_margins(style, 4)
 	return style
 
 
