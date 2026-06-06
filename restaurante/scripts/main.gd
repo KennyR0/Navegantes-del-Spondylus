@@ -68,6 +68,9 @@ const FISHING_BREATH_3_TEXTURE := preload("res://assets/protagonist/frames/fish_
 const FISHING_BITE_TEXTURE := preload("res://assets/protagonist/frames/fish_mordida.png")
 const FISHING_PULL_TEXTURE := preload("res://assets/protagonist/frames/fish_jalar.png")
 const DISH_REFERENCE_TEXTURE := preload("res://assets/protagonist/plato.jpg")
+const CEVICHE_RAW_TEXTURE := preload("res://assets/protagonist/ceviche_crudo.png")
+const ENCEBOLLADO_RAW_TEXTURE := preload("res://assets/protagonist/encebollado_crudo.png")
+const PARGO_RAW_TEXTURE := preload("res://assets/protagonist/pargo_crudo.png")
 const RESTAURANT_BASE_TEXTURE := preload("res://assets/restaurant/cocinal1.png")
 const RESTAURANT_UPGRADED_TEXTURE := preload("res://assets/restaurant/cocina2.png")
 const CLIENT_PLACEHOLDER_1_TEXTURE := preload("res://assets/restaurant/client_placeholder_1.png")
@@ -147,12 +150,55 @@ var rent_boat_animation_overlay: Control
 var menu_animation_time := 0.0
 var menu_birds: Array = []
 var menu_waves: Array = []
+var dragged_recipe_id := ""
+var restaurant_drag_mouse_was_down := false
 
 var background_layer: Control
 var ui_layer: Control
 var bite_timer: Timer
 var fail_timer: Timer
 var rent_boat_animation_timer: Timer
+
+
+class RecipeDragButton:
+	extends Button
+
+	var main
+	var recipe_id := ""
+	var recipe_texture: Texture2D
+
+	func _get_drag_data(_at_position: Vector2) -> Variant:
+		if disabled:
+			return null
+		var preview := TextureRect.new()
+		preview.texture = recipe_texture
+		preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		preview.custom_minimum_size = Vector2(70, 54)
+		preview.modulate.a = 0.92
+		set_drag_preview(preview)
+		return {"type": "raw_dish", "recipe_id": recipe_id}
+
+
+class StoveDropSlot:
+	extends PanelContainer
+
+	var main
+	var stove_id := 0
+
+	func _can_drop_data(_at_position: Vector2, data: Variant) -> bool:
+		if typeof(data) != TYPE_DICTIONARY:
+			return false
+		var drag_data: Dictionary = data as Dictionary
+		if str(drag_data.get("type", "")) != "raw_dish":
+			return false
+		return main._can_drop_recipe_on_stove(str(drag_data.get("recipe_id", "")), stove_id)
+
+	func _drop_data(_at_position: Vector2, data: Variant) -> void:
+		var drag_data: Dictionary = data as Dictionary
+		main.dragged_recipe_id = ""
+		main._start_cooking_on_stove(str(drag_data.get("recipe_id", "")), stove_id)
 
 
 func _ready() -> void:
@@ -182,6 +228,7 @@ func _process(delta: float) -> void:
 		return
 
 	if mode != "restaurant":
+		restaurant_drag_mouse_was_down = false
 		return
 
 	restaurant_refresh_elapsed += delta
@@ -189,6 +236,16 @@ func _process(delta: float) -> void:
 	var arrivals_changed := _update_customer_arrivals()
 	var customers_changed := _close_late_customers()
 	var changed := stoves_changed or arrivals_changed or customers_changed
+	var mouse_down := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	if restaurant_drag_mouse_was_down and not mouse_down and dragged_recipe_id != "":
+		_finish_recipe_drag_at_mouse()
+		restaurant_drag_mouse_was_down = false
+		return
+	restaurant_drag_mouse_was_down = mouse_down
+	if mouse_down:
+		if changed:
+			_persist_save()
+		return
 	if changed or restaurant_refresh_elapsed >= 0.25:
 		restaurant_refresh_elapsed = 0.0
 		_show_restaurant()
@@ -1093,6 +1150,122 @@ func _recipe_menu_card(recipe: Dictionary) -> Button:
 	return button
 
 
+func _raw_dish_drag_card(recipe: Dictionary) -> Button:
+	var recipe_id := str(recipe["id"])
+	var disabled := not _can_cook(recipe)
+	var card := RecipeDragButton.new()
+	card.main = self
+	card.recipe_id = recipe_id
+	card.recipe_texture = _raw_dish_texture(recipe_id)
+	card.disabled = disabled
+	card.text = ""
+	card.tooltip_text = "Arrastra a una hornilla"
+	card.custom_minimum_size = Vector2(146, 58)
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	card.add_theme_stylebox_override("normal", _raw_dish_card_style(disabled, 1.0))
+	card.add_theme_stylebox_override("hover", _raw_dish_card_style(disabled, 1.06))
+	card.add_theme_stylebox_override("pressed", _raw_dish_card_style(disabled, 0.92))
+	if not disabled:
+		card.button_down.connect(Callable(self, "_begin_recipe_drag").bind(recipe_id))
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 6)
+	margin.add_theme_constant_override("margin_top", 5)
+	margin.add_theme_constant_override("margin_right", 6)
+	margin.add_theme_constant_override("margin_bottom", 5)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(margin)
+
+	var content := HBoxContainer.new()
+	content.alignment = BoxContainer.ALIGNMENT_CENTER
+	content.add_theme_constant_override("separation", 6)
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(content)
+
+	var plate := TextureRect.new()
+	plate.texture = card.recipe_texture
+	plate.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	plate.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	plate.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	plate.custom_minimum_size = Vector2(42, 38)
+	plate.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.add_child(plate)
+
+	var text_column := VBoxContainer.new()
+	text_column.alignment = BoxContainer.ALIGNMENT_CENTER
+	text_column.add_theme_constant_override("separation", 0)
+	text_column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.add_child(text_column)
+
+	var name_label := _label(str(recipe["short_name"]), 12, Color("#fff7db"), true)
+	name_label.custom_minimum_size = Vector2(82, 0)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	name_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	text_column.add_child(name_label)
+
+	var status_text := "Crudo" if not disabled else "Sin pesca"
+	var status_label := _label(status_text, 10, Color("#f6c177"), true)
+	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	status_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	status_label.clip_text = true
+	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	text_column.add_child(status_label)
+	return card
+
+
+func _raw_dish_texture(recipe_id: String) -> Texture2D:
+	match recipe_id:
+		"ceviche_manta":
+			return CEVICHE_RAW_TEXTURE
+		"encebollado_pochita":
+			return ENCEBOLLADO_RAW_TEXTURE
+		"pargo_premium":
+			return PARGO_RAW_TEXTURE
+		_:
+			return DISH_REFERENCE_TEXTURE
+
+
+func _begin_recipe_drag(recipe_id: String) -> void:
+	dragged_recipe_id = recipe_id
+	restaurant_drag_mouse_was_down = true
+
+
+func _finish_recipe_drag_at_mouse() -> void:
+	var recipe_id := dragged_recipe_id
+	dragged_recipe_id = ""
+	if recipe_id == "":
+		return
+
+	var stove_id := _stove_id_at_global_position(get_global_mouse_position())
+	if stove_id < 0:
+		message = "Suelta el plato sobre una hornilla libre."
+		_show_restaurant()
+		return
+	_start_cooking_on_stove(recipe_id, stove_id)
+
+
+func _stove_id_at_global_position(global_position: Vector2) -> int:
+	return _stove_id_at_global_position_in_node(ui_layer, global_position)
+
+
+func _stove_id_at_global_position_in_node(node: Node, global_position: Vector2) -> int:
+	if node is StoveDropSlot:
+		var slot := node as StoveDropSlot
+		if slot.get_global_rect().has_point(global_position):
+			return slot.stove_id
+	for child in node.get_children():
+		var found := _stove_id_at_global_position_in_node(child, global_position)
+		if found >= 0:
+			return found
+	return -1
+
+
 func _recipe_cost_text(recipe: Dictionary) -> String:
 	var parts: Array = []
 	for ingredient_item in recipe["ingredients"]:
@@ -1197,16 +1370,19 @@ func _show_restaurant_v2() -> void:
 	])
 	_add_toast(message)
 	_draw_restaurant_status()
+	_draw_stove_status()
 
 	var panel := _bottom_panel(600)
-	panel.add_child(_label("Cocina del puesto", 20, Color("#f6c177"), true))
-	panel.add_child(_small_stat("Hornillas", _stove_summary()))
+	panel.add_child(_label("Cocina del puesto", 18, Color("#f6c177"), true))
 	panel.add_child(_small_stat("Pedidos", _customer_summary()))
 
-	var cook_row := _button_row()
+	var cook_row := HFlowContainer.new()
+	cook_row.add_theme_constant_override("h_separation", 6)
+	cook_row.add_theme_constant_override("v_separation", 4)
+	cook_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for recipe_id in restaurant.get("day_menu", []):
 		var recipe_data: Dictionary = _get_recipe(str(recipe_id))
-		cook_row.add_child(_button("%s $%s" % [recipe_data["short_name"], _get_dish_price(recipe_data["id"])], Callable(self, "_start_cooking").bind(recipe_data["id"]), not _can_cook(recipe_data)))
+		cook_row.add_child(_raw_dish_drag_card(recipe_data))
 	panel.add_child(cook_row)
 
 	var deliver_row := _button_row()
@@ -1245,6 +1421,38 @@ func _start_cooking(recipe_id: String) -> void:
 	message = "%s en la hornilla %s." % [recipe["short_name"], stove["id"] + 1]
 	_show_restaurant()
 	_persist_save()
+
+
+func _start_cooking_on_stove(recipe_id: String, stove_id: int) -> void:
+	var recipe: Dictionary = _get_recipe(recipe_id)
+	var stove: Dictionary = _find_stove(stove_id)
+	if stove.is_empty():
+		message = "Esa hornilla no estÃ¡ disponible."
+		_show_restaurant()
+		return
+	if stove["recipe_id"] != "":
+		message = "La hornilla %s estÃ¡ ocupada." % (stove_id + 1)
+		_show_restaurant()
+		return
+	if not _consume_recipe(recipe):
+		message = "Faltan ingredientes para ese plato."
+		_show_restaurant()
+		return
+
+	var now: float = Time.get_ticks_msec() / 1000.0
+	stove["recipe_id"] = recipe["id"]
+	stove["started_at"] = now
+	stove["ready_at"] = now + _get_cook_seconds(recipe)
+	stove["ready"] = false
+	message = "%s en la hornilla %s." % [recipe["short_name"], stove["id"] + 1]
+	_show_restaurant()
+	_persist_save()
+
+
+func _can_drop_recipe_on_stove(recipe_id: String, stove_id: int) -> bool:
+	var recipe: Dictionary = _get_recipe(recipe_id)
+	var stove: Dictionary = _find_stove(stove_id)
+	return not stove.is_empty() and stove["recipe_id"] == "" and _can_cook(recipe)
 
 
 func _deliver_to_customer(customer_id: int) -> void:
@@ -1509,6 +1717,14 @@ func _first_free_stove() -> Dictionary:
 	for stove_item in restaurant["stoves"]:
 		var stove: Dictionary = stove_item as Dictionary
 		if stove["recipe_id"] == "":
+			return stove
+	return {}
+
+
+func _find_stove(stove_id: int) -> Dictionary:
+	for stove_item in restaurant["stoves"]:
+		var stove: Dictionary = stove_item as Dictionary
+		if int(stove["id"]) == stove_id:
 			return stove
 	return {}
 
@@ -2285,27 +2501,52 @@ func _draw_waiting_customer_hint() -> void:
 
 func _draw_stove_status() -> void:
 	var shelf := HBoxContainer.new()
-	shelf.anchor_left = 0.3
-	shelf.anchor_right = 0.95
-	shelf.anchor_top = 0.54
-	shelf.anchor_bottom = 0.67
+	shelf.anchor_left = 0.26
+	shelf.anchor_right = 0.98
+	shelf.anchor_top = 0.61
+	shelf.anchor_bottom = 0.72
 	shelf.alignment = BoxContainer.ALIGNMENT_CENTER
-	shelf.add_theme_constant_override("separation", 10)
-	background_layer.add_child(shelf)
+	shelf.add_theme_constant_override("separation", 6)
+	ui_layer.add_child(shelf)
 
 	var now: float = Time.get_ticks_msec() / 1000.0
 	for stove_item in restaurant.get("stoves", []):
 		var stove: Dictionary = stove_item as Dictionary
-		var card := _stove_card()
-		var content := card.get_node("Content") as VBoxContainer
-		content.add_child(_label("Hornilla %s" % (stove["id"] + 1), 12, Color("#e9f7ef"), true))
+		var card := StoveDropSlot.new()
+		card.main = self
+		card.stove_id = int(stove["id"])
+		card.custom_minimum_size = Vector2(72, 72)
+		card.add_theme_stylebox_override("panel", _stove_drop_slot_style(stove))
+		var content := VBoxContainer.new()
+		content.name = "Content"
+		content.alignment = BoxContainer.ALIGNMENT_CENTER
+		content.add_theme_constant_override("separation", 1)
+		content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(content)
+		var stove_label := _label("H%s" % (stove["id"] + 1), 11, Color("#e9f7ef"), true)
+		stove_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		stove_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+		content.add_child(stove_label)
 		if stove["recipe_id"] == "":
-			content.add_child(_label("Libre", 15, Color("#f6c177"), true))
+			var free_label := _label("Libre", 11, Color("#67d391"), true)
+			free_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			free_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+			content.add_child(free_label)
 		else:
 			var recipe: Dictionary = _get_recipe(stove["recipe_id"])
-			content.add_child(_label(recipe["short_name"], 14, Color("#f6c177"), true))
+			var plate := TextureRect.new()
+			plate.texture = _raw_dish_texture(str(recipe["id"]))
+			plate.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			plate.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			plate.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			plate.custom_minimum_size = Vector2(44, 28)
+			plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			content.add_child(plate)
 			var state: String = "Listo" if stove["ready"] else "%ss" % max(0, ceili(stove["ready_at"] - now))
-			content.add_child(_label(state, 13, Color("#e9f7ef"), true))
+			var state_label := _label(state, 11, Color("#f6c177") if stove["ready"] else Color("#e9f7ef"), true)
+			state_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			state_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+			content.add_child(state_label)
 		shelf.add_child(card)
 
 
@@ -2714,6 +2955,41 @@ func _stove_card() -> PanelContainer:
 	content.add_theme_constant_override("separation", 4)
 	card.add_child(content)
 	return card
+
+
+func _raw_dish_card_style(disabled: bool, multiplier := 1.0) -> StyleBoxFlat:
+	var color := Color("#123d46")
+	if disabled:
+		color = Color("#1d2525")
+	elif multiplier > 1.0:
+		color = color.lightened(multiplier - 1.0)
+	elif multiplier < 1.0:
+		color = color.darkened(1.0 - multiplier)
+
+	var style := StyleBoxFlat.new()
+	style.bg_color = color
+	style.border_color = Color("#f4d58d") if not disabled else Color(0.92, 0.97, 0.94, 0.18)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(6)
+	_set_style_margins(style, 4)
+	return style
+
+
+func _stove_drop_slot_style(stove: Dictionary) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	if stove["recipe_id"] == "":
+		style.bg_color = Color(0.03, 0.18, 0.15, 0.84)
+		style.border_color = Color("#67d391")
+	elif bool(stove["ready"]):
+		style.bg_color = Color(0.24, 0.20, 0.06, 0.88)
+		style.border_color = Color("#f6c177")
+	else:
+		style.bg_color = Color(0.10, 0.07, 0.04, 0.88)
+		style.border_color = Color("#d84a3a")
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(5)
+	_set_style_margins(style, 4)
+	return style
 
 
 func _small_stat(label_text: String, value_text: String) -> HBoxContainer:
