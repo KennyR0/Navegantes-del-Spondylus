@@ -136,6 +136,9 @@ var last_catch_result := ""
 var last_catch_started_at := -10.0
 var tutorial_step := 0
 var rent_boat_animation_overlay: Control
+var menu_animation_time := 0.0
+var menu_birds: Array = []
+var menu_waves: Array = []
 
 var background_layer: Control
 var ui_layer: Control
@@ -154,6 +157,10 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_tick_save_sync(delta)
+
+	if mode == "menu":
+		_animate_menu_scene(delta)
+		return
 
 	if mode == "fishing":
 		fishing_redraw_elapsed += delta
@@ -226,6 +233,8 @@ func _clear_layer(layer: Node) -> void:
 func _reset_screen() -> void:
 	_clear_layer(background_layer)
 	_clear_layer(ui_layer)
+	menu_birds.clear()
+	menu_waves.clear()
 
 
 func _create_default_save() -> Dictionary:
@@ -553,6 +562,7 @@ func _finish_tutorial() -> void:
 
 func _show_menu() -> void:
 	mode = "menu"
+	menu_animation_time = 0.0
 	_reset_screen()
 	_draw_menu_background()
 
@@ -1564,6 +1574,114 @@ func _customer_summary_v2() -> String:
 
 func _draw_menu_background() -> void:
 	_add_full_texture(MAIN_MENU_TEXTURE)
+	_add_menu_ocean_shimmers()
+	_add_menu_birds()
+
+
+func _add_menu_birds() -> void:
+	var viewport_size := get_viewport_rect().size
+	var bird_specs := [
+		{"anchor": Vector2(0.61, 0.055), "scale": 0.62, "speed": 6.0, "phase": 0.0, "alpha": 0.45},
+		{"anchor": Vector2(0.75, 0.090), "scale": 0.76, "speed": 7.5, "phase": 1.7, "alpha": 0.50},
+		{"anchor": Vector2(0.89, 0.145), "scale": 0.92, "speed": 8.8, "phase": 3.2, "alpha": 0.48}
+	]
+
+	for spec in bird_specs:
+		var bird := Node2D.new()
+		var anchor: Vector2 = spec["anchor"] as Vector2
+		var base := Vector2(anchor.x * viewport_size.x, anchor.y * viewport_size.y)
+		bird.position = base
+		bird.scale = Vector2.ONE * float(spec["scale"])
+		background_layer.add_child(bird)
+
+		var tint := Color(0.94, 0.95, 0.92, float(spec["alpha"]))
+		var left_wing := _menu_bird_line(tint, 4.0, [Vector2(-16, 1), Vector2(-7, -5), Vector2(0, 0)])
+		var right_wing := _menu_bird_line(tint, 4.0, [Vector2(0, 0), Vector2(8, -5), Vector2(16, 1)])
+		var body := _menu_bird_line(Color(0.16, 0.17, 0.24, float(spec["alpha"]) * 0.42), 3.0, [Vector2(-2, 1), Vector2(3, 1)])
+		bird.add_child(left_wing)
+		bird.add_child(right_wing)
+		bird.add_child(body)
+
+		menu_birds.append({
+			"node": bird,
+			"left_wing": left_wing,
+			"right_wing": right_wing,
+			"base": base,
+			"speed": float(spec["speed"]),
+			"phase": float(spec["phase"])
+		})
+
+
+func _menu_bird_line(color: Color, width: float, points: Array) -> Line2D:
+	var line := Line2D.new()
+	line.width = width
+	line.default_color = color
+	for point in points:
+		line.add_point(point as Vector2)
+	return line
+
+
+func _add_menu_ocean_shimmers() -> void:
+	var viewport_size := get_viewport_rect().size
+	var wave_specs := [
+		{"anchor": Vector2(0.64, 0.520), "length": 118.0, "speed": 0.70, "phase": 0.0, "alpha": 0.17},
+		{"anchor": Vector2(0.78, 0.565), "length": 152.0, "speed": 0.86, "phase": 1.2, "alpha": 0.20},
+		{"anchor": Vector2(0.59, 0.660), "length": 108.0, "speed": 0.64, "phase": 2.0, "alpha": 0.12},
+		{"anchor": Vector2(0.82, 0.735), "length": 170.0, "speed": 0.74, "phase": 3.4, "alpha": 0.16},
+		{"anchor": Vector2(0.72, 0.890), "length": 126.0, "speed": 0.92, "phase": 4.1, "alpha": 0.11}
+	]
+
+	for spec in wave_specs:
+		var wave := Line2D.new()
+		wave.width = 3.0
+		wave.default_color = Color(1.0, 0.78, 0.45, float(spec["alpha"]))
+		var anchor: Vector2 = spec["anchor"] as Vector2
+		wave.position = Vector2(anchor.x * viewport_size.x, anchor.y * viewport_size.y)
+		var length := float(spec["length"])
+		wave.add_point(Vector2(-length * 0.5, 0.0))
+		wave.add_point(Vector2(-length * 0.12, -3.0))
+		wave.add_point(Vector2(length * 0.18, 2.0))
+		wave.add_point(Vector2(length * 0.5, 0.0))
+		background_layer.add_child(wave)
+
+		menu_waves.append({
+			"node": wave,
+			"base": wave.position,
+			"speed": float(spec["speed"]),
+			"phase": float(spec["phase"]),
+			"alpha": float(spec["alpha"])
+		})
+
+
+func _animate_menu_scene(delta: float) -> void:
+	menu_animation_time += delta
+	for bird_data in menu_birds:
+		var bird: Node2D = bird_data["node"] as Node2D
+		if not is_instance_valid(bird):
+			continue
+		var left_wing: Line2D = bird_data["left_wing"] as Line2D
+		var right_wing: Line2D = bird_data["right_wing"] as Line2D
+		if not is_instance_valid(left_wing) or not is_instance_valid(right_wing):
+			continue
+		var phase := menu_animation_time * 3.6 + float(bird_data["phase"])
+		var flap := sin(phase)
+		var drift := fmod(menu_animation_time * float(bird_data["speed"]) + float(bird_data["phase"]) * 16.0, 58.0)
+		var base: Vector2 = bird_data["base"] as Vector2
+		bird.position = base + Vector2(drift - 29.0, sin(phase * 0.38) * 3.0)
+		bird.rotation_degrees = sin(phase * 0.31) * 1.2
+		left_wing.set_point_position(1, Vector2(-7, -5 - flap * 5.0))
+		right_wing.set_point_position(1, Vector2(8, -5 - flap * 5.0))
+
+	for wave_data in menu_waves:
+		var wave: Line2D = wave_data["node"] as Line2D
+		if not is_instance_valid(wave):
+			continue
+		var phase := menu_animation_time * float(wave_data["speed"]) + float(wave_data["phase"])
+		var base: Vector2 = wave_data["base"] as Vector2
+		wave.position = base + Vector2(sin(phase) * 16.0, sin(phase * 1.7) * 2.0)
+		var wave_color := wave.default_color
+		wave_color.a = float(wave_data["alpha"]) * (0.65 + 0.35 * sin(phase + 1.0))
+		wave.default_color = wave_color
 
 
 func _add_menu_hotspot(top_left: Vector2, bottom_right: Vector2, action: Callable, disabled := false) -> void:
