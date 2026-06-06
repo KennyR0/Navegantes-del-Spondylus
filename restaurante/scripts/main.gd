@@ -24,6 +24,8 @@ const RESTAURANT_MUSIC_STREAM := preload("res://assets/audio/restauranteloopST.m
 const FISHING_MUSIC_STREAM := preload("res://assets/audio/pescaST.mp3")
 const CAST_LINE_SFX_STREAM := preload("res://assets/audio/cana_de_pescar.mp3")
 const CATCH_FISH_SFX_STREAM := preload("res://assets/audio/atrapar.mp3")
+const NEW_GAME_AUDIO_STREAM := preload("res://assets/audio/welcome_to_the_pochita_stone.mp3")
+const INTRO_SUSPENSE_STREAM := preload("res://assets/audio/suspenso_intro.mp3")
 const RESTAURANT_MUSIC_TARGET_DB := -8.0
 const RESTAURANT_MUSIC_START_DB := -34.0
 const RESTAURANT_MUSIC_FADE_SECONDS := 1.8
@@ -196,6 +198,8 @@ var restaurant_music_player: AudioStreamPlayer
 var fishing_music_player: AudioStreamPlayer
 var cast_line_sfx_player: AudioStreamPlayer
 var catch_fish_sfx_player: AudioStreamPlayer
+var new_game_audio_player: AudioStreamPlayer
+var intro_suspense_player: AudioStreamPlayer
 
 
 class RecipeDragButton:
@@ -368,6 +372,19 @@ func _create_audio_players() -> void:
 	catch_fish_sfx_player.volume_db = _get_sfx_volume_db()
 	add_child(catch_fish_sfx_player)
 
+	new_game_audio_player = AudioStreamPlayer.new()
+	new_game_audio_player.stream = NEW_GAME_AUDIO_STREAM
+	new_game_audio_player.volume_db = _get_sfx_volume_db()
+	new_game_audio_player.finished.connect(_start_fresh_run)
+	add_child(new_game_audio_player)
+
+	intro_suspense_player = AudioStreamPlayer.new()
+	intro_suspense_player.stream = INTRO_SUSPENSE_STREAM
+	if intro_suspense_player.stream is AudioStreamMP3:
+		(intro_suspense_player.stream as AudioStreamMP3).loop = true
+	intro_suspense_player.volume_db = _get_sfx_volume_db()
+	add_child(intro_suspense_player)
+
 
 func _sync_menu_music(delta: float) -> void:
 	_sync_music_player(menu_music_player, _should_play_menu_music(), _get_menu_music_start_db(), _get_menu_music_target_db(), delta)
@@ -409,7 +426,7 @@ func _should_play_fishing_music() -> bool:
 
 
 func _should_play_menu_music() -> bool:
-	return not _should_play_fishing_music() and not _should_play_restaurant_music()
+	return mode != "intro" and not _should_play_fishing_music() and not _should_play_restaurant_music()
 
 
 func _get_music_volume() -> float:
@@ -470,6 +487,32 @@ func _play_catch_fish_sfx() -> void:
 	catch_fish_sfx_player.volume_db = _get_sfx_volume_db()
 	catch_fish_sfx_player.stop()
 	catch_fish_sfx_player.play()
+
+
+func _play_new_game_audio() -> void:
+	if mode != "intro" or new_game_audio_player == null:
+		return
+	new_game_audio_player.volume_db = _get_sfx_volume_db()
+	new_game_audio_player.stop()
+	if intro_suspense_player != null:
+		intro_suspense_player.stop()
+	intro_click_locked = true
+	new_game_audio_player.play()
+
+
+func _play_intro_suspense_audio() -> void:
+	if mode != "intro" or intro_suspense_player == null:
+		return
+	intro_suspense_player.volume_db = _get_sfx_volume_db()
+	intro_suspense_player.stop()
+	intro_suspense_player.play()
+
+
+func _stop_intro_audio() -> void:
+	if new_game_audio_player != null:
+		new_game_audio_player.stop()
+	if intro_suspense_player != null:
+		intro_suspense_player.stop()
 
 
 func _clear_layer(layer: Node) -> void:
@@ -723,6 +766,8 @@ func _restore_restaurant_state(raw_restaurant) -> Dictionary:
 
 
 func _start_fresh_run() -> void:
+	if mode == "intro":
+		_stop_intro_audio()
 	var tutorial_was_seen := bool(save.get("tutorial_seen", false))
 	save = _create_default_save()
 	save["tutorial_seen"] = tutorial_was_seen
@@ -742,6 +787,9 @@ func _start_intro() -> void:
 	intro_index = 0
 	intro_click_locked = false
 	message = ""
+	if menu_music_player != null:
+		menu_music_player.stop()
+	_play_intro_suspense_audio()
 	_show_intro_frame()
 
 
@@ -772,7 +820,7 @@ func _advance_intro_frame() -> void:
 	if mode != "intro" or intro_click_locked:
 		return
 	if intro_index >= INTRO_FRAMES.size() - 1:
-		_start_fresh_run()
+		_play_new_game_audio()
 		return
 
 	var previous_frame: Dictionary = INTRO_FRAMES[intro_index] as Dictionary
@@ -1094,6 +1142,10 @@ func _on_music_volume_changed(value: float, volume_label: Label) -> void:
 		cast_line_sfx_player.volume_db = _get_sfx_volume_db()
 	if catch_fish_sfx_player != null:
 		catch_fish_sfx_player.volume_db = _get_sfx_volume_db()
+	if new_game_audio_player != null:
+		new_game_audio_player.volume_db = _get_sfx_volume_db()
+	if intro_suspense_player != null:
+		intro_suspense_player.volume_db = _get_sfx_volume_db()
 	_write_save_file()
 
 
@@ -1109,6 +1161,10 @@ func _mute_music() -> void:
 		cast_line_sfx_player.volume_db = MUSIC_MIN_DB
 	if catch_fish_sfx_player != null:
 		catch_fish_sfx_player.volume_db = MUSIC_MIN_DB
+	if new_game_audio_player != null:
+		new_game_audio_player.volume_db = MUSIC_MIN_DB
+	if intro_suspense_player != null:
+		intro_suspense_player.volume_db = MUSIC_MIN_DB
 	_write_save_file()
 	_show_settings()
 
