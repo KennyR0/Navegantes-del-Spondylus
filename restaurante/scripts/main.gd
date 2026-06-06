@@ -18,6 +18,16 @@ const FISHING_REDRAW_SECONDS := 0.08
 const SAVE_SYNC_SECONDS := 1.0
 const CUSTOMER_PATIENCE_SECONDS := 22.0
 const RENT_BOAT_ANIMATION_PATH := "res://assets/animations/animacion_renta_banco.ogv"
+const MENU_MUSIC_STREAM := preload("res://assets/audio/menu_principal.mp3")
+const RESTAURANT_MUSIC_STREAM := preload("res://assets/audio/restauranteloopST.mp3")
+const FISHING_MUSIC_STREAM := preload("res://assets/audio/pescaST.mp3")
+const CAST_LINE_SFX_STREAM := preload("res://assets/audio/cana_de_pescar.mp3")
+const CATCH_FISH_SFX_STREAM := preload("res://assets/audio/atrapar.mp3")
+const RESTAURANT_MUSIC_TARGET_DB := -8.0
+const RESTAURANT_MUSIC_START_DB := -34.0
+const RESTAURANT_MUSIC_FADE_SECONDS := 1.8
+const MUSIC_TRANSITION_SECONDS := 1.25
+const MUSIC_MIN_DB := -80.0
 const RENT_BOAT_ANIMATION_FALLBACK_SECONDS := 2.4
 const RENT_BOAT_ANIMATION_SAFETY_SECONDS := 8.0
 const WATER_SURFACE_TOP := 0.60
@@ -158,6 +168,11 @@ var ui_layer: Control
 var bite_timer: Timer
 var fail_timer: Timer
 var rent_boat_animation_timer: Timer
+var menu_music_player: AudioStreamPlayer
+var restaurant_music_player: AudioStreamPlayer
+var fishing_music_player: AudioStreamPlayer
+var cast_line_sfx_player: AudioStreamPlayer
+var catch_fish_sfx_player: AudioStreamPlayer
 
 
 class RecipeDragButton:
@@ -205,12 +220,16 @@ func _ready() -> void:
 	rng.randomize()
 	_create_layers()
 	_create_timers()
+	_create_audio_players()
 	save = _load_save()
 	_show_menu()
 
 
 func _process(delta: float) -> void:
 	_tick_save_sync(delta)
+	_sync_menu_music(delta)
+	_sync_fishing_music(delta)
+	_sync_restaurant_music(delta)
 
 	if mode == "menu":
 		_animate_menu_scene(delta)
@@ -254,7 +273,7 @@ func _process(delta: float) -> void:
 
 
 func _tick_save_sync(delta: float) -> void:
-	if day.is_empty() or mode == "menu":
+	if day.is_empty() or mode == "menu" or mode == "settings":
 		return
 	save_sync_elapsed += delta
 	if save_sync_elapsed >= SAVE_SYNC_SECONDS:
@@ -289,6 +308,147 @@ func _create_timers() -> void:
 	add_child(rent_boat_animation_timer)
 
 
+func _create_audio_players() -> void:
+	var menu_music_stream := MENU_MUSIC_STREAM
+	if menu_music_stream is AudioStreamMP3:
+		(menu_music_stream as AudioStreamMP3).loop = true
+	menu_music_player = AudioStreamPlayer.new()
+	menu_music_player.stream = menu_music_stream
+	menu_music_player.volume_db = _get_menu_music_start_db()
+	add_child(menu_music_player)
+
+	var restaurant_music_stream := RESTAURANT_MUSIC_STREAM
+	if restaurant_music_stream is AudioStreamMP3:
+		(restaurant_music_stream as AudioStreamMP3).loop = true
+	restaurant_music_player = AudioStreamPlayer.new()
+	restaurant_music_player.stream = restaurant_music_stream
+	restaurant_music_player.volume_db = _get_restaurant_music_start_db()
+	add_child(restaurant_music_player)
+
+	var fishing_music_stream := FISHING_MUSIC_STREAM
+	if fishing_music_stream is AudioStreamMP3:
+		(fishing_music_stream as AudioStreamMP3).loop = true
+	fishing_music_player = AudioStreamPlayer.new()
+	fishing_music_player.stream = fishing_music_stream
+	fishing_music_player.volume_db = _get_fishing_music_start_db()
+	add_child(fishing_music_player)
+
+	cast_line_sfx_player = AudioStreamPlayer.new()
+	cast_line_sfx_player.stream = CAST_LINE_SFX_STREAM
+	if cast_line_sfx_player.stream is AudioStreamMP3:
+		(cast_line_sfx_player.stream as AudioStreamMP3).loop = true
+	cast_line_sfx_player.volume_db = _get_sfx_volume_db()
+	add_child(cast_line_sfx_player)
+
+	catch_fish_sfx_player = AudioStreamPlayer.new()
+	catch_fish_sfx_player.stream = CATCH_FISH_SFX_STREAM
+	catch_fish_sfx_player.volume_db = _get_sfx_volume_db()
+	add_child(catch_fish_sfx_player)
+
+
+func _sync_menu_music(delta: float) -> void:
+	_sync_music_player(menu_music_player, _should_play_menu_music(), _get_menu_music_start_db(), _get_menu_music_target_db(), delta)
+
+
+func _sync_fishing_music(delta: float) -> void:
+	_sync_music_player(fishing_music_player, _should_play_fishing_music(), _get_fishing_music_start_db(), _get_fishing_music_target_db(), delta)
+
+
+func _sync_restaurant_music(delta: float) -> void:
+	_sync_music_player(restaurant_music_player, _should_play_restaurant_music(), _get_restaurant_music_start_db(), _get_restaurant_music_target_db(), delta)
+
+
+func _sync_music_player(player: AudioStreamPlayer, should_play: bool, start_db: float, target_db: float, delta: float) -> void:
+	if player == null:
+		return
+	if should_play:
+		if not player.playing:
+			player.volume_db = start_db
+			player.play()
+		var fade_in_step := absf(target_db - start_db) / MUSIC_TRANSITION_SECONDS
+		player.volume_db = move_toward(player.volume_db, target_db, fade_in_step * delta)
+		return
+
+	if not player.playing:
+		return
+	var fade_out_step := absf(RESTAURANT_MUSIC_TARGET_DB - MUSIC_MIN_DB) / MUSIC_TRANSITION_SECONDS
+	player.volume_db = move_toward(player.volume_db, MUSIC_MIN_DB, fade_out_step * delta)
+	if player.volume_db <= MUSIC_MIN_DB + 0.1:
+		player.stop()
+
+
+func _should_play_restaurant_music() -> bool:
+	return mode == "menu_setup" or mode == "restaurant"
+
+
+func _should_play_fishing_music() -> bool:
+	return mode == "fishing" and not day.is_empty() and bool(day.get("boat_rented", false))
+
+
+func _should_play_menu_music() -> bool:
+	return not _should_play_fishing_music() and not _should_play_restaurant_music()
+
+
+func _get_music_volume() -> float:
+	return clampf(float(save.get("music_volume", 1.0)), 0.0, 1.0)
+
+
+func _volume_to_db(volume: float, base_db: float) -> float:
+	var clamped_volume := clampf(volume, 0.0, 1.0)
+	if clamped_volume <= 0.0:
+		return MUSIC_MIN_DB
+	return maxf(MUSIC_MIN_DB, base_db + linear_to_db(clamped_volume))
+
+
+func _get_restaurant_music_target_db() -> float:
+	return _volume_to_db(_get_music_volume(), RESTAURANT_MUSIC_TARGET_DB)
+
+
+func _get_restaurant_music_start_db() -> float:
+	return _volume_to_db(_get_music_volume(), RESTAURANT_MUSIC_START_DB)
+
+
+func _get_fishing_music_target_db() -> float:
+	return _volume_to_db(_get_music_volume(), RESTAURANT_MUSIC_TARGET_DB)
+
+
+func _get_fishing_music_start_db() -> float:
+	return _volume_to_db(_get_music_volume(), RESTAURANT_MUSIC_START_DB)
+
+
+func _get_menu_music_target_db() -> float:
+	return _volume_to_db(_get_music_volume(), RESTAURANT_MUSIC_TARGET_DB)
+
+
+func _get_menu_music_start_db() -> float:
+	return _volume_to_db(_get_music_volume(), RESTAURANT_MUSIC_START_DB)
+
+
+func _get_sfx_volume_db() -> float:
+	return _volume_to_db(_get_music_volume(), RESTAURANT_MUSIC_TARGET_DB)
+
+
+func _start_cast_line_sfx() -> void:
+	if cast_line_sfx_player == null:
+		return
+	cast_line_sfx_player.volume_db = _get_sfx_volume_db()
+	cast_line_sfx_player.stop()
+	cast_line_sfx_player.play()
+
+
+func _stop_cast_line_sfx() -> void:
+	if cast_line_sfx_player != null and cast_line_sfx_player.playing:
+		cast_line_sfx_player.stop()
+
+
+func _play_catch_fish_sfx() -> void:
+	if catch_fish_sfx_player == null:
+		return
+	catch_fish_sfx_player.volume_db = _get_sfx_volume_db()
+	catch_fish_sfx_player.stop()
+	catch_fish_sfx_player.play()
+
+
 func _clear_layer(layer: Node) -> void:
 	for child in layer.get_children():
 		layer.remove_child(child)
@@ -309,7 +469,8 @@ func _create_default_save() -> Dictionary:
 		"upgrade_level": 0,
 		"unlocked_recipes": ["ceviche_manta", "encebollado_pochita", "pargo_premium"],
 		"best_day": null,
-		"tutorial_seen": false
+		"tutorial_seen": false,
+		"music_volume": 1.0
 	}
 
 
@@ -649,10 +810,100 @@ func _show_menu() -> void:
 
 	_add_menu_hotspot(Vector2(0.05, 0.565), Vector2(0.37, 0.635), Callable(self, "_start_fresh_run"))
 	_add_menu_hotspot(Vector2(0.05, 0.650), Vector2(0.37, 0.720), Callable(self, "_continue_saved_run"), not _has_saved_run())
+	_add_menu_hotspot(Vector2(0.05, 0.727), Vector2(0.37, 0.770), Callable(self, "_show_settings"))
 	_add_menu_hotspot(Vector2(0.05, 0.775), Vector2(0.37, 0.850), Callable(self, "_quit_game"))
 
 	if message != "":
 		_add_menu_notice(message)
+
+
+func _show_settings() -> void:
+	mode = "settings"
+	_reset_screen()
+	_draw_menu_background()
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 18)
+	margin.add_theme_constant_override("margin_right", 18)
+	margin.add_theme_constant_override("margin_top", 18)
+	margin.add_theme_constant_override("margin_bottom", 18)
+	ui_layer.add_child(margin)
+
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	margin.add_child(center)
+
+	var panel_container := PanelContainer.new()
+	panel_container.custom_minimum_size = Vector2(minf(520.0, get_viewport_rect().size.x - 36.0), 0)
+	panel_container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	panel_container.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	panel_container.add_theme_stylebox_override("panel", _panel_style())
+	center.add_child(panel_container)
+
+	var panel := VBoxContainer.new()
+	panel.add_theme_constant_override("separation", 12)
+	panel_container.add_child(panel)
+
+	var title := _label("Configuración", 24, Color("#f6c177"), true)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	panel.add_child(title)
+
+	var volume_label := _label(_music_volume_label(), 16, Color("#e9f7ef"), true)
+	volume_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	panel.add_child(volume_label)
+
+	var slider := HSlider.new()
+	slider.min_value = 0.0
+	slider.max_value = 100.0
+	slider.step = 1.0
+	slider.value = roundi(_get_music_volume() * 100.0)
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.custom_minimum_size = Vector2(0, 44)
+	slider.value_changed.connect(Callable(self, "_on_music_volume_changed").bind(volume_label))
+	panel.add_child(slider)
+
+	var controls := _button_row()
+	controls.add_child(_button("Volver", Callable(self, "_show_menu"), false, "secondary"))
+	controls.add_child(_button("Silenciar", Callable(self, "_mute_music"), _get_music_volume() <= 0.0, "danger"))
+	panel.add_child(controls)
+
+
+func _music_volume_label() -> String:
+	return "Volumen de música: %s%%" % roundi(_get_music_volume() * 100.0)
+
+
+func _on_music_volume_changed(value: float, volume_label: Label) -> void:
+	save["music_volume"] = clampf(value / 100.0, 0.0, 1.0)
+	volume_label.text = _music_volume_label()
+	if menu_music_player != null and menu_music_player.playing:
+		menu_music_player.volume_db = _get_menu_music_target_db()
+	if restaurant_music_player != null and restaurant_music_player.playing:
+		restaurant_music_player.volume_db = _get_restaurant_music_target_db()
+	if fishing_music_player != null and fishing_music_player.playing:
+		fishing_music_player.volume_db = _get_fishing_music_target_db()
+	if cast_line_sfx_player != null:
+		cast_line_sfx_player.volume_db = _get_sfx_volume_db()
+	if catch_fish_sfx_player != null:
+		catch_fish_sfx_player.volume_db = _get_sfx_volume_db()
+	_write_save_file()
+
+
+func _mute_music() -> void:
+	save["music_volume"] = 0.0
+	if menu_music_player != null and menu_music_player.playing:
+		menu_music_player.volume_db = MUSIC_MIN_DB
+	if restaurant_music_player != null and restaurant_music_player.playing:
+		restaurant_music_player.volume_db = MUSIC_MIN_DB
+	if fishing_music_player != null and fishing_music_player.playing:
+		fishing_music_player.volume_db = MUSIC_MIN_DB
+	if cast_line_sfx_player != null:
+		cast_line_sfx_player.volume_db = MUSIC_MIN_DB
+	if catch_fish_sfx_player != null:
+		catch_fish_sfx_player.volume_db = MUSIC_MIN_DB
+	_write_save_file()
+	_show_settings()
 
 
 func _show_fishing() -> void:
@@ -695,6 +946,7 @@ func _rent_boat() -> void:
 	day["boat_rented"] = true
 	message = "Bote rentado. Busca el ritmo de respiración del señuelo."
 	_show_fishing()
+	_sync_fishing_music(0.0)
 	_play_rent_boat_animation()
 	_persist_save()
 
@@ -841,6 +1093,7 @@ func _cast_line() -> void:
 	if not day["boat_rented"] or day["casts_left"] <= 0 or fishing_phase != "idle":
 		return
 
+	_start_cast_line_sfx()
 	fishing_phase = "waiting"
 	cast_started_at = _now_seconds()
 	lure_breaths_total = rng.randi_range(LURE_MIN_FALSE_BREATHS, LURE_MAX_FALSE_BREATHS)
@@ -893,6 +1146,7 @@ func _start_bite() -> void:
 		return
 
 	fishing_phase = "bite"
+	_stop_cast_line_sfx()
 	bite_started_at = _now_seconds()
 	lure_motion_started_at = bite_started_at
 	message = "¡Se hundió! Jala antes de %.2fs para pesca perfecta." % _get_perfect_window_seconds()
@@ -923,6 +1177,7 @@ func _finish_catch(result: String) -> void:
 	if fishing_phase == "idle":
 		return
 
+	_stop_cast_line_sfx()
 	bite_timer.stop()
 	fail_timer.stop()
 	last_catch_result = result
@@ -934,6 +1189,8 @@ func _finish_catch(result: String) -> void:
 	day["casts_left"] = max(0, day["casts_left"] - 1)
 
 	var catch_loot := _grant_catch_loot(result)
+	if _catch_loot_total(catch_loot) > 0:
+		_play_catch_fish_sfx()
 	if result == "perfect":
 		day["summary"]["perfect_catches"] += 1
 	elif result == "good":
@@ -995,6 +1252,10 @@ func _catch_loot_text(catch_loot: Dictionary) -> String:
 	if parts.is_empty():
 		return "sin pesca"
 	return ", ".join(parts)
+
+
+func _catch_loot_total(catch_loot: Dictionary) -> int:
+	return int(catch_loot.get("premium", 0)) + int(catch_loot.get("normal", 0))
 
 
 func _now_seconds() -> float:
