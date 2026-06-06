@@ -72,16 +72,12 @@ const MAX_CUSTOMER_ARRIVAL_GAP_SECONDS := 8.0
 const CATCH_REACTION_SECONDS := 1.15
 const TUTORIAL_STEPS := [
 	{
-		"title": "Pesca: no todo movimiento es mordida",
-		"body": "Cuando el señuelo respira, el agua se mueve pero el pez todavía no mordió. Si jalas en una respiración falsa, el lance falla."
+		"title": "Pesca: espera la mordida real",
+		"body": "Si el señuelo respira, espera. Jala solo cuando se hunda y aparezca el aviso. Perfecto da 5 pescados; buena pesca da 3."
 	},
 	{
-		"title": "Mordida real: jala al hundirse",
-		"body": "La mordida real ocurre cuando el señuelo se hunde y aparece el aviso de jalar. Reacciona rápido: perfecto da 5 pescados y buena pesca da 3."
-	},
-	{
-		"title": "Cocina: arma el menú del día",
-		"body": "Antes de abrir la cocina eliges hasta 3 platos para vender. Los clientes solo pedirán recetas de ese menú, así que elige según tus pescados normales y premium."
+		"title": "Restaurante: vende lo que puedes cocinar",
+		"body": "Elige hasta 3 platos para el menú del día. Los clientes pedirán solo esos platos: cocina, entrega rápido y cierra el día."
 	}
 ]
 
@@ -135,6 +131,7 @@ var selected_day_menu: Array = []
 var last_catch_result := ""
 var last_catch_started_at := -10.0
 var tutorial_step := 0
+var tutorial_started_from_menu := false
 var rent_boat_animation_overlay: Control
 var menu_animation_time := 0.0
 var menu_birds: Array = []
@@ -273,6 +270,10 @@ func _persist_save() -> void:
 	else:
 		save["current_run"] = run_snapshot
 
+	_write_save_file()
+
+
+func _write_save_file() -> void:
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file:
 		file.store_string(JSON.stringify(save))
@@ -478,6 +479,7 @@ func _start_fresh_run() -> void:
 	selected_day_menu = []
 	fishing_phase = "idle"
 	tutorial_step = 0
+	tutorial_started_from_menu = false
 	message = "Renta un bote para salir antes de que suba la marea."
 	summary_finalized = false
 	if _should_show_first_day_tutorial():
@@ -493,6 +495,7 @@ func _start_next_day() -> void:
 	selected_day_menu = []
 	fishing_phase = "idle"
 	tutorial_step = 0
+	tutorial_started_from_menu = false
 	message = "Renta un bote para salir antes de que suba la marea."
 	summary_finalized = false
 	_show_fishing()
@@ -503,17 +506,24 @@ func _should_show_first_day_tutorial() -> bool:
 	return not bool(save.get("tutorial_seen", false))
 
 
+func _show_menu_tutorial() -> void:
+	tutorial_started_from_menu = true
+	tutorial_step = 0
+	message = ""
+	_show_tutorial(0)
+
+
 func _show_tutorial(step := 0) -> void:
 	mode = "tutorial"
 	tutorial_step = clampi(step, 0, TUTORIAL_STEPS.size() - 1)
 	_reset_screen()
-	if tutorial_step < 2:
+	if tutorial_step == 0:
 		_draw_fishing_background()
 	else:
 		_draw_restaurant_background()
 	_add_top_bar([
 		"Tutorial %s/%s" % [tutorial_step + 1, TUTORIAL_STEPS.size()],
-		"Demo gamejam: aprende lo esencial y empieza rapido"
+		"Aprende lo esencial y empieza rápido"
 	])
 
 	var step_data: Dictionary = TUTORIAL_STEPS[tutorial_step] as Dictionary
@@ -523,19 +533,22 @@ func _show_tutorial(step := 0) -> void:
 	panel.add_child(_tutorial_hint_panel())
 
 	var controls := _button_row()
-	var next_label := "Empezar a pescar" if tutorial_step >= TUTORIAL_STEPS.size() - 1 else "Siguiente"
+	var next_label := _tutorial_finish_label() if tutorial_step >= TUTORIAL_STEPS.size() - 1 else "Siguiente"
 	controls.add_child(_button(next_label, Callable(self, "_advance_tutorial")))
 	controls.add_child(_button("Saltar", Callable(self, "_skip_tutorial"), false, "secondary"))
 	panel.add_child(controls)
-	_persist_save()
+	if not tutorial_started_from_menu and not day.is_empty():
+		_persist_save()
+
+
+func _tutorial_finish_label() -> String:
+	return "Volver al menú" if tutorial_started_from_menu or day.is_empty() else "Empezar a pescar"
 
 
 func _tutorial_hint_panel() -> PanelContainer:
 	var hint := ""
 	if tutorial_step == 0:
-		hint = "Clave: durante la respiración falsa, espera. El botón Jalar castiga la ansiedad."
-	elif tutorial_step == 1:
-		hint = "Clave: cuando se hunde, jala de inmediato. La ventana perfecta es corta."
+		hint = "Clave: la respiración falsa castiga la ansiedad. La mordida real hunde el señuelo."
 	else:
 		hint = "Clave: el menú filtra los pedidos. No vendas platos que no podrás cocinar."
 	return _text_panel(hint, 14, Color("#f6c177"), true)
@@ -555,6 +568,12 @@ func _skip_tutorial() -> void:
 func _finish_tutorial() -> void:
 	save["tutorial_seen"] = true
 	tutorial_step = TUTORIAL_STEPS.size() - 1
+	if tutorial_started_from_menu or day.is_empty():
+		tutorial_started_from_menu = false
+		message = ""
+		_show_menu()
+		_write_save_file()
+		return
 	message = "Renta un bote, mira el señuelo y jala solo cuando se hunda."
 	_show_fishing()
 	_persist_save()
@@ -563,16 +582,17 @@ func _finish_tutorial() -> void:
 func _show_menu() -> void:
 	mode = "menu"
 	menu_animation_time = 0.0
+	tutorial_started_from_menu = false
 	_reset_screen()
 	_draw_menu_background()
 
 	_add_menu_hotspot(Vector2(0.05, 0.565), Vector2(0.37, 0.635), Callable(self, "_start_fresh_run"))
 	_add_menu_hotspot(Vector2(0.05, 0.650), Vector2(0.37, 0.720), Callable(self, "_continue_saved_run"), not _has_saved_run())
+	_add_menu_hotspot(Vector2(0.05, 0.725), Vector2(0.37, 0.775), Callable(self, "_show_menu_tutorial"))
 	_add_menu_hotspot(Vector2(0.05, 0.775), Vector2(0.37, 0.850), Callable(self, "_quit_game"))
 
 	if message != "":
 		_add_menu_notice(message)
-	return
 
 	var panel := _bottom_panel()
 	var title := _label("La Pochita Stone", 34, Color("#f6c177"), true)
@@ -587,6 +607,11 @@ func _show_menu() -> void:
 	controls.add_child(_button("Nuevo día", Callable(self, "_start_fresh_run")))
 	controls.add_child(_button("Continuar", Callable(self, "_continue_saved_run"), not _has_saved_run(), "secondary"))
 	panel.add_child(controls)
+
+	var secondary_controls := _button_row()
+	secondary_controls.add_child(_button("Tutorial", Callable(self, "_show_menu_tutorial"), false, "secondary"))
+	secondary_controls.add_child(_button("Salir", Callable(self, "_quit_game"), false, "secondary"))
+	panel.add_child(secondary_controls)
 
 
 func _show_fishing() -> void:
