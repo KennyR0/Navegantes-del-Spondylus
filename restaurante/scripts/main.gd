@@ -1074,9 +1074,9 @@ func _add_rent_boat_skip_button(parent: Control) -> void:
 	skip_button.add_theme_font_size_override("font_size", 13)
 	skip_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	skip_button.offset_left = -96
-	skip_button.offset_top = -54
+	skip_button.offset_top = -62
 	skip_button.offset_right = -12
-	skip_button.offset_bottom = -20
+	skip_button.offset_bottom = -28
 	skip_button.pressed.connect(_finish_rent_boat_animation)
 	parent.add_child(skip_button)
 
