@@ -217,7 +217,7 @@ class RecipeDragButton:
 		preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		preview.custom_minimum_size = Vector2(70, 54)
+		preview.custom_minimum_size = Vector2(92, 72)
 		preview.modulate.a = 0.92
 		set_drag_preview(preview)
 		return {"type": "raw_dish", "recipe_id": recipe_id}
@@ -1700,7 +1700,7 @@ func _raw_dish_drag_card(recipe: Dictionary) -> Button:
 	card.disabled = disabled
 	card.text = ""
 	card.tooltip_text = "Arrastra a una hornilla"
-	card.custom_minimum_size = Vector2(146, 58)
+	card.custom_minimum_size = Vector2(174, 74)
 	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	card.add_theme_stylebox_override("normal", _raw_dish_card_style(disabled, 1.0))
 	card.add_theme_stylebox_override("hover", _raw_dish_card_style(disabled, 1.06))
@@ -1710,16 +1710,16 @@ func _raw_dish_drag_card(recipe: Dictionary) -> Button:
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 6)
-	margin.add_theme_constant_override("margin_top", 5)
-	margin.add_theme_constant_override("margin_right", 6)
-	margin.add_theme_constant_override("margin_bottom", 5)
+	margin.add_theme_constant_override("margin_left", 8)
+	margin.add_theme_constant_override("margin_top", 7)
+	margin.add_theme_constant_override("margin_right", 8)
+	margin.add_theme_constant_override("margin_bottom", 7)
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(margin)
 
 	var content := HBoxContainer.new()
 	content.alignment = BoxContainer.ALIGNMENT_CENTER
-	content.add_theme_constant_override("separation", 6)
+	content.add_theme_constant_override("separation", 8)
 	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(content)
 
@@ -1728,7 +1728,7 @@ func _raw_dish_drag_card(recipe: Dictionary) -> Button:
 	plate.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	plate.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	plate.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	plate.custom_minimum_size = Vector2(42, 38)
+	plate.custom_minimum_size = Vector2(52, 46)
 	plate.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	content.add_child(plate)
@@ -1739,8 +1739,8 @@ func _raw_dish_drag_card(recipe: Dictionary) -> Button:
 	text_column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	content.add_child(text_column)
 
-	var name_label := _label(str(recipe["short_name"]), 12, Color("#fff7db"), true)
-	name_label.custom_minimum_size = Vector2(82, 0)
+	var name_label := _label(str(recipe["short_name"]), 14, Color("#fff7db"), true)
+	name_label.custom_minimum_size = Vector2(98, 0)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	name_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	name_label.clip_text = true
@@ -1749,7 +1749,7 @@ func _raw_dish_drag_card(recipe: Dictionary) -> Button:
 	text_column.add_child(name_label)
 
 	var status_text := "Crudo" if not disabled else "Sin pesca"
-	var status_label := _label(status_text, 10, Color("#f6c177"), true)
+	var status_label := _label(status_text, 12, Color("#f6c177"), true)
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	status_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	status_label.clip_text = true
@@ -1916,8 +1916,8 @@ func _show_restaurant_v2() -> void:
 	panel.add_child(_restaurant_panel_header())
 
 	var cook_row := HFlowContainer.new()
-	cook_row.add_theme_constant_override("h_separation", 8)
-	cook_row.add_theme_constant_override("v_separation", 6)
+	cook_row.add_theme_constant_override("h_separation", 10)
+	cook_row.add_theme_constant_override("v_separation", 10)
 	cook_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for recipe_id in restaurant.get("day_menu", []):
 		var recipe_data: Dictionary = _get_recipe(str(recipe_id))
@@ -2567,13 +2567,13 @@ func _quit_game() -> void:
 func _draw_fishing_background() -> void:
 	if not day.get("boat_rented", false):
 		_add_full_texture(SHIPYARD_BACKGROUND_TEXTURE)
-		_add_scene_band(Color(0.14, 0.11, 0.16, 0.34), 0.84, 1.0)
+		_add_scene_band(Color(0.14, 0.11, 0.16, 0.22), 0.905, 1.0)
 		return
 
 	_add_full_texture(FISHING_BACKGROUND_TEXTURE)
 	_draw_flying_gulls()
 	_draw_animated_water()
-	_add_scene_band(Color(0.14, 0.11, 0.16, 0.42), 0.84, 1.0)
+	_add_scene_band(Color(0.14, 0.11, 0.16, 0.24), 0.905, 1.0)
 	var boat_anchor := BOAT_ANCHOR
 	var boat_scale := Vector2(2.28, 2.28)
 	_add_texture(BOAT_TEXTURE, boat_anchor, boat_scale, 1.0, 0.0)
@@ -3312,17 +3312,18 @@ func _add_top_bar(items: Array, reserve_right_space := false) -> void:
 
 func _add_top_menu_button() -> void:
 	var button := _button("menu", Callable(self, "_return_to_main_menu"), false, "secondary")
-	button.custom_minimum_size = Vector2(68, 36)
+	button.custom_minimum_size = Vector2(76, 44)
+	button.add_theme_font_size_override("font_size", 16)
 	button.z_index = 50
 	button.mouse_filter = Control.MOUSE_FILTER_STOP
 	button.anchor_left = 1.0
 	button.anchor_right = 1.0
 	button.anchor_top = 0.0
 	button.anchor_bottom = 0.0
-	button.offset_left = -80
+	button.offset_left = -88
 	button.offset_right = -12
 	button.offset_top = 10
-	button.offset_bottom = 46
+	button.offset_bottom = 54
 	ui_layer.add_child(button)
 
 
@@ -3482,9 +3483,9 @@ func _day_menu_rule() -> ColorRect:
 func _bottom_controls() -> GridContainer:
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 10)
-	margin.add_theme_constant_override("margin_right", 10)
-	margin.add_theme_constant_override("margin_bottom", 10)
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_bottom", 12)
 	ui_layer.add_child(margin)
 
 	var outer := VBoxContainer.new()
@@ -3493,12 +3494,17 @@ func _bottom_controls() -> GridContainer:
 	outer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	margin.add_child(outer)
 
+	var tray := PanelContainer.new()
+	tray.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tray.add_theme_stylebox_override("panel", _control_tray_style())
+	outer.add_child(tray)
+
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	grid.add_theme_constant_override("h_separation", 6)
-	grid.add_theme_constant_override("v_separation", 6)
-	outer.add_child(grid)
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	tray.add_child(grid)
 	return grid
 
 
@@ -3506,8 +3512,8 @@ func _button_row() -> GridContainer:
 	var row := GridContainer.new()
 	row.columns = 2
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("h_separation", 6)
-	row.add_theme_constant_override("v_separation", 6)
+	row.add_theme_constant_override("h_separation", 10)
+	row.add_theme_constant_override("v_separation", 10)
 	return row
 
 
@@ -3515,7 +3521,7 @@ func _button(text: String, action: Callable, disabled := false, variant := "prim
 	var button := Button.new()
 	button.text = text
 	button.disabled = disabled
-	button.custom_minimum_size = Vector2(0, 48)
+	button.custom_minimum_size = Vector2(0, 70)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.add_theme_stylebox_override("normal", _button_style(variant, disabled))
 	button.add_theme_stylebox_override("hover", _button_style(variant, disabled, 1.08))
@@ -3524,7 +3530,7 @@ func _button(text: String, action: Callable, disabled := false, variant := "prim
 	if variant == "upgrade" and not disabled:
 		font_color = Color("#fff3bf")
 	button.add_theme_color_override("font_color", font_color)
-	button.add_theme_font_size_override("font_size", 15)
+	button.add_theme_font_size_override("font_size", 17)
 	button.clip_text = true
 	button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	if press_on_down:
@@ -3680,6 +3686,16 @@ func _chip_style() -> StyleBoxFlat:
 	return style
 
 
+func _control_tray_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.03, 0.10, 0.11, 0.64)
+	style.border_color = Color(0.92, 0.97, 0.94, 0.16)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(8)
+	_set_style_margins(style, 10)
+	return style
+
+
 func _meter_track_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.03, 0.12, 0.15, 0.88)
@@ -3779,7 +3795,7 @@ func _button_style(variant: String, disabled: bool, multiplier := 1.0) -> StyleB
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
 	style.set_corner_radius_all(8)
-	_set_style_margins(style, 8)
+	_set_style_margins(style, 13)
 	return style
 
 
