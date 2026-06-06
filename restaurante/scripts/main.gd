@@ -20,7 +20,7 @@ const CUSTOMER_PATIENCE_SECONDS := 22.0
 const RENT_BOAT_ANIMATION_PATH := "res://assets/animations/animacion_renta_banco.ogv"
 const RENT_BOAT_ANIMATION_FALLBACK_SECONDS := 2.4
 const RENT_BOAT_ANIMATION_SAFETY_SECONDS := 8.0
-const WATER_SURFACE_TOP := 0.615
+const WATER_SURFACE_TOP := 0.54
 const BOAT_ANCHOR := Vector2(0.46, 0.72)
 const FISHERMAN_ANCHOR := Vector2(0.455, 0.682)
 const FISHERMAN_SCALE := Vector2(1.18, 1.57)
@@ -29,12 +29,19 @@ const FISHING_ROD_TIP_ANCHOR := Vector2(0.575, 0.645)
 const FISHERMAN_FRAME_SECONDS := 0.34
 const LURE_SURFACE_ANCHOR := Vector2(0.675, 0.735)
 const FISH_ANCHOR := Vector2(0.69, 0.755)
+const GULL_FLIGHT_SECONDS := 8.0
+const GULL_RESPAWN_SECONDS := 2.0
+const GULL_COUNT := 4
 
 const WATER_TEXTURE := preload("res://assets/craftpix/3 Objects/Water.png")
 const HUT_TEXTURE := preload("res://assets/craftpix/3 Objects/Fishing_hut.png")
 const BOAT_TEXTURE := preload("res://assets/craftpix/3 Objects/Boat.png")
 const SHIPYARD_BACKGROUND_TEXTURE := preload("res://assets/pixelart/shipyard_background.png")
-const FISHING_SEASCAPE_TEXTURE := preload("res://assets/pixelart/fishing_seascape_pixel.png")
+const FISHING_BACKGROUND_TEXTURE := preload("res://assets/pixelart/fondo_pesca.jpeg")
+const GULL_FLAP_UP_TEXTURE := preload("res://assets/pixelart/gulls/gull_flap_up.png")
+const GULL_GLIDE_TEXTURE := preload("res://assets/pixelart/gulls/gull_glide.png")
+const GULL_DIVE_TEXTURE := preload("res://assets/pixelart/gulls/gull_dive.png")
+const GULL_FLAP_DOWN_TEXTURE := preload("res://assets/pixelart/gulls/gull_flap_down.png")
 const FISH_NORMAL_TEXTURE := preload("res://assets/pixelart/fish_normal_pixel.png")
 const FISH_PREMIUM_TEXTURE := preload("res://assets/pixelart/fish_premium_pixel.png")
 const LURE_TEXTURE := preload("res://assets/pixelart/lure_bobber.png")
@@ -593,6 +600,14 @@ func _show_fishing() -> void:
 	controls.add_child(_button("Lanzar caña", Callable(self, "_cast_line"), not day["boat_rented"] or fishing_phase != "idle" or day["casts_left"] <= 0, "secondary"))
 	controls.add_child(_button("¡Jalar!", Callable(self, "_hook_fish"), fishing_phase == "idle", "danger", true))
 	controls.add_child(_button("Ir al restaurante", Callable(self, "_open_restaurant"), day["casts_left"] == _get_daily_casts() or fishing_phase != "idle"))
+	controls.add_child(_button("Volver al menu", Callable(self, "_return_to_main_menu"), false, "secondary"))
+
+
+func _return_to_main_menu() -> void:
+	if not day.is_empty():
+		_persist_save()
+	message = ""
+	_show_menu()
 
 
 func _rent_boat() -> void:
@@ -1168,45 +1183,6 @@ func _create_restaurant_state(day_menu: Array) -> Dictionary:
 
 func _show_restaurant() -> void:
 	_show_restaurant_v2()
-	return
-
-	mode = "restaurant"
-	_reset_screen()
-	_draw_restaurant_background()
-	_add_top_bar([
-		"$%s" % save["coins"],
-		_inventory_chip_text(),
-		"Atendidos %s/4" % day["summary"]["served"]
-	])
-	_add_toast(message)
-	_draw_restaurant_status()
-
-	var panel := _bottom_panel(500)
-	panel.add_child(_label("Cocina del puesto", 22, Color("#f6c177"), true))
-	panel.add_child(_small_stat("Hornillas", _stove_summary()))
-	panel.add_child(_small_stat("Pedidos", _customer_summary()))
-
-	var cook_row := _button_row()
-	for recipe_item in RECIPES:
-		var recipe_data: Dictionary = recipe_item as Dictionary
-		if save["unlocked_recipes"].has(recipe_data["id"]):
-			cook_row.add_child(_button(recipe_data["short_name"], Callable(self, "_start_cooking").bind(recipe_data["id"]), not _can_cook(recipe_data)))
-	panel.add_child(cook_row)
-
-	var deliver_row := _button_row()
-	var has_pending := false
-	for customer_item in restaurant["customers"]:
-		var customer_data: Dictionary = customer_item as Dictionary
-		if not customer_data["served"]:
-			has_pending = true
-			deliver_row.add_child(_button("Cliente %s" % customer_data["id"], Callable(self, "_deliver_to_customer").bind(customer_data["id"]), false, "secondary"))
-	if not has_pending:
-		deliver_row.add_child(_button("Clientes atendidos", Callable(self, "_show_summary"), true, "secondary"))
-	panel.add_child(deliver_row)
-
-	var close_row := _button_row()
-	close_row.add_child(_button("Cerrar día", Callable(self, "_show_summary"), false, "danger"))
-	panel.add_child(close_row)
 
 
 func _show_restaurant_v2() -> void:
@@ -1383,28 +1359,6 @@ func _show_summary() -> void:
 	_reset_screen()
 	_draw_summary_background()
 	_add_day_summary_sheet()
-	return
-
-	_add_top_bar([
-		"$%s" % save["coins"],
-		"* %s" % save["stars"],
-		"Mejora %s" % save["upgrade_level"]
-	])
-	_add_toast(message)
-
-	var panel := _bottom_panel()
-	panel.add_child(_label("Resumen del día", 24, Color("#f6c177"), true))
-	panel.add_child(_small_stat("Ventas", "%s monedas" % day["summary"]["revenue"]))
-	panel.add_child(_small_stat("Clientes", "%s atendidos" % day["summary"]["served"]))
-	panel.add_child(_small_stat("Caritas", "%s felices · %s neutras · %s molestas" % [day["summary"]["happy"], day["summary"]["neutral"], day["summary"]["unhappy"]]))
-	panel.add_child(_small_stat("Pesca", "%s perfectas · %s buenas · %s fallidas" % [day["summary"]["perfect_catches"], day["summary"]["good_catches"], day["summary"]["failed_catches"]]))
-	panel.add_child(_small_stat("Mejora actual", _upgrade_effect_summary()))
-
-	var controls := _button_row()
-	var upgrade_cost := _get_upgrade_cost()
-	controls.add_child(_button("Mejorar puesto (%s)" % upgrade_cost, Callable(self, "_upgrade_restaurant"), save["coins"] < upgrade_cost))
-	controls.add_child(_button("Siguiente día", Callable(self, "_start_next_day"), false, "secondary"))
-	panel.add_child(controls)
 
 
 func _finalize_day() -> void:
@@ -1606,36 +1560,9 @@ func _score_satisfaction(customer: Dictionary, correct_dish: bool) -> String:
 func _stove_summary() -> String:
 	return _stove_summary_v2()
 
-	var parts: Array = []
-	var now: float = Time.get_ticks_msec() / 1000.0
-	for stove_item in restaurant["stoves"]:
-		var stove: Dictionary = stove_item as Dictionary
-		if stove["recipe_id"] == "":
-			parts.append("%s: libre" % (stove["id"] + 1))
-		else:
-			var recipe: Dictionary = _get_recipe(stove["recipe_id"])
-			var state: String = " listo" if stove["ready"] else " %ss" % max(0, ceili(stove["ready_at"] - now))
-			parts.append("%s: %s%s" % [stove["id"] + 1, recipe["short_name"], state])
-	return " · ".join(parts)
-
 
 func _customer_summary() -> String:
 	return _customer_summary_v2()
-
-	var parts: Array = []
-	for customer_item in restaurant["customers"]:
-		var customer: Dictionary = customer_item as Dictionary
-		var recipe: Dictionary = _get_recipe(customer["order_recipe_id"])
-		var face := ""
-		match customer["satisfaction"]:
-			"happy":
-				face = " :)"
-			"neutral":
-				face = " :|"
-			"unhappy":
-				face = " :("
-		parts.append("%s: %s%s" % [customer["id"], recipe["short_name"], face])
-	return " · ".join(parts)
 
 
 func _stove_summary_v2() -> String:
@@ -1682,44 +1609,23 @@ func _draw_menu_background() -> void:
 func _add_menu_birds() -> void:
 	var viewport_size := get_viewport_rect().size
 	var bird_specs := [
-		{"anchor": Vector2(0.61, 0.055), "scale": 0.62, "speed": 6.0, "phase": 0.0, "alpha": 0.45},
-		{"anchor": Vector2(0.75, 0.090), "scale": 0.76, "speed": 7.5, "phase": 1.7, "alpha": 0.50},
-		{"anchor": Vector2(0.89, 0.145), "scale": 0.92, "speed": 8.8, "phase": 3.2, "alpha": 0.48}
+		{"anchor": Vector2(0.58, 0.060), "scale": 0.045, "speed": 10.0, "phase": 0.0, "alpha": 0.80},
+		{"anchor": Vector2(0.76, 0.105), "scale": 0.052, "speed": 12.0, "phase": 1.7, "alpha": 0.86},
+		{"anchor": Vector2(0.93, 0.160), "scale": 0.060, "speed": 13.8, "phase": 3.2, "alpha": 0.78}
 	]
 
 	for spec in bird_specs:
-		var bird := Node2D.new()
 		var anchor: Vector2 = spec["anchor"] as Vector2
 		var base := Vector2(anchor.x * viewport_size.x, anchor.y * viewport_size.y)
-		bird.position = base
-		bird.scale = Vector2.ONE * float(spec["scale"])
+		var bird := _create_gull_sprite(base, float(spec["scale"]), float(spec["alpha"]), true)
 		background_layer.add_child(bird)
-
-		var tint := Color(0.94, 0.95, 0.92, float(spec["alpha"]))
-		var left_wing := _menu_bird_line(tint, 4.0, [Vector2(-16, 1), Vector2(-7, -5), Vector2(0, 0)])
-		var right_wing := _menu_bird_line(tint, 4.0, [Vector2(0, 0), Vector2(8, -5), Vector2(16, 1)])
-		var body := _menu_bird_line(Color(0.16, 0.17, 0.24, float(spec["alpha"]) * 0.42), 3.0, [Vector2(-2, 1), Vector2(3, 1)])
-		bird.add_child(left_wing)
-		bird.add_child(right_wing)
-		bird.add_child(body)
 
 		menu_birds.append({
 			"node": bird,
-			"left_wing": left_wing,
-			"right_wing": right_wing,
 			"base": base,
 			"speed": float(spec["speed"]),
 			"phase": float(spec["phase"])
 		})
-
-
-func _menu_bird_line(color: Color, width: float, points: Array) -> Line2D:
-	var line := Line2D.new()
-	line.width = width
-	line.default_color = color
-	for point in points:
-		line.add_point(point as Vector2)
-	return line
 
 
 func _add_menu_ocean_shimmers() -> void:
@@ -1757,21 +1663,15 @@ func _add_menu_ocean_shimmers() -> void:
 func _animate_menu_scene(delta: float) -> void:
 	menu_animation_time += delta
 	for bird_data in menu_birds:
-		var bird: Node2D = bird_data["node"] as Node2D
+		var bird: Sprite2D = bird_data["node"] as Sprite2D
 		if not is_instance_valid(bird):
 			continue
-		var left_wing: Line2D = bird_data["left_wing"] as Line2D
-		var right_wing: Line2D = bird_data["right_wing"] as Line2D
-		if not is_instance_valid(left_wing) or not is_instance_valid(right_wing):
-			continue
 		var phase := menu_animation_time * 3.6 + float(bird_data["phase"])
-		var flap := sin(phase)
-		var drift := fmod(menu_animation_time * float(bird_data["speed"]) + float(bird_data["phase"]) * 16.0, 58.0)
+		var drift := fmod(menu_animation_time * float(bird_data["speed"]) + float(bird_data["phase"]) * 16.0, 78.0)
 		var base: Vector2 = bird_data["base"] as Vector2
-		bird.position = base + Vector2(drift - 29.0, sin(phase * 0.38) * 3.0)
+		_set_gull_flight_frame(bird, phase, true)
+		bird.position = base + Vector2(drift - 39.0, sin(phase * 0.38) * 4.0)
 		bird.rotation_degrees = sin(phase * 0.31) * 1.2
-		left_wing.set_point_position(1, Vector2(-7, -5 - flap * 5.0))
-		right_wing.set_point_position(1, Vector2(8, -5 - flap * 5.0))
 
 	for wave_data in menu_waves:
 		var wave: Line2D = wave_data["node"] as Line2D
@@ -1826,7 +1726,8 @@ func _draw_fishing_background() -> void:
 		_add_scene_band(Color(0.14, 0.11, 0.16, 0.34), 0.84, 1.0)
 		return
 
-	_add_full_texture(FISHING_SEASCAPE_TEXTURE)
+	_add_full_texture(FISHING_BACKGROUND_TEXTURE)
+	_draw_flying_gulls()
 	_draw_animated_water()
 	_add_scene_band(Color(0.14, 0.11, 0.16, 0.42), 0.84, 1.0)
 	var boat_anchor := BOAT_ANCHOR
@@ -1841,18 +1742,70 @@ func _draw_fishing_background() -> void:
 		_draw_fishing_lure()
 
 
+func _draw_flying_gulls() -> void:
+	var viewport_size := get_viewport_rect().size
+	var time := _now_seconds()
+	var cycle_seconds := GULL_FLIGHT_SECONDS + GULL_RESPAWN_SECONDS
+
+	for index in range(GULL_COUNT):
+		var phase := fmod(time + float(index) * 1.65, cycle_seconds)
+		if phase >= GULL_FLIGHT_SECONDS:
+			continue
+
+		var progress := phase / GULL_FLIGHT_SECONDS
+		var x := lerpf(-0.16, 1.16, progress) * viewport_size.x
+		var sky_y := 0.15 + float(index % 3) * 0.055 + sin(time * 0.75 + float(index)) * 0.012
+		var y := sky_y * viewport_size.y
+		var scale := 0.052 + float(index) * 0.007
+		var gull := _create_gull_sprite(Vector2(x, y), scale, 0.92, true)
+		var flap_time := time + float(index) * 0.9
+		_set_gull_flight_frame(gull, flap_time * 2.4, true)
+		gull.rotation_degrees = sin(flap_time * 0.55) * 2.0
+		background_layer.add_child(gull)
+
+
+func _create_gull_sprite(position: Vector2, sprite_scale: float, alpha: float, fly_right := true) -> Sprite2D:
+	var sprite := Sprite2D.new()
+	sprite.texture = GULL_GLIDE_TEXTURE
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	sprite.centered = true
+	sprite.position = position
+	sprite.scale = Vector2.ONE * sprite_scale
+	sprite.flip_h = fly_right
+	sprite.modulate.a = alpha
+	return sprite
+
+
+func _set_gull_flight_frame(sprite: Sprite2D, phase: float, fly_right := true) -> void:
+	var frame := int(floor(phase * 2.0)) % 4
+	var native_faces_right := false
+	if frame == 0:
+		sprite.texture = GULL_FLAP_UP_TEXTURE
+	elif frame == 1:
+		sprite.texture = GULL_GLIDE_TEXTURE
+	elif frame == 2:
+		sprite.texture = GULL_FLAP_DOWN_TEXTURE
+	else:
+		sprite.texture = GULL_DIVE_TEXTURE
+		native_faces_right = true
+	if fly_right:
+		sprite.flip_h = not native_faces_right
+	else:
+		sprite.flip_h = native_faces_right
+
+
 func _draw_fisherman() -> void:
 	var fisher_texture: Texture2D = _current_fishing_actor_texture()
 	var anchor := FISHERMAN_ANCHOR
-	var rotation := 0.0
+	var actor_rotation := 0.0
 	if fishing_phase == "bite" or (_now_seconds() - last_catch_started_at <= CATCH_REACTION_SECONDS and (last_catch_result == "perfect" or last_catch_result == "good")):
 		var shake := sin(_now_seconds() * 38.0)
 		anchor += Vector2(shake * 0.004, sin(_now_seconds() * 52.0) * 0.003)
-		rotation = shake * 2.4
-	_add_fishing_actor_texture(fisher_texture, anchor, FISHERMAN_SCALE * _fishing_actor_frame_scale(fisher_texture), 1.0, rotation)
+		actor_rotation = shake * 2.4
+	_add_fishing_actor_texture(fisher_texture, anchor, FISHERMAN_SCALE * _fishing_actor_frame_scale(fisher_texture), 1.0, actor_rotation)
 
 
-func _add_fishing_actor_texture(texture: Texture2D, anchor: Vector2, scale: Vector2, alpha: float, rotation_degrees_value := 0.0) -> void:
+func _add_fishing_actor_texture(texture: Texture2D, anchor: Vector2, texture_scale: Vector2, alpha: float, rotation_degrees_value := 0.0) -> void:
 	var rect := TextureRect.new()
 	rect.texture = texture
 	rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -1864,7 +1817,7 @@ func _add_fishing_actor_texture(texture: Texture2D, anchor: Vector2, scale: Vect
 	rect.anchor_right = anchor.x
 	rect.anchor_top = anchor.y
 	rect.anchor_bottom = anchor.y
-	rect.custom_minimum_size = FISHING_ACTOR_BASE_SIZE * scale
+	rect.custom_minimum_size = FISHING_ACTOR_BASE_SIZE * texture_scale
 	rect.pivot_offset = rect.custom_minimum_size * 0.5
 	rect.offset_left = -rect.custom_minimum_size.x / 2.0
 	rect.offset_right = rect.custom_minimum_size.x / 2.0
@@ -1994,24 +1947,40 @@ func _draw_animated_water() -> void:
 	var viewport_size := get_viewport_rect().size
 	var time := _now_seconds()
 	var water_tint := ColorRect.new()
-	water_tint.color = Color(0.15, 0.36, 0.58, 0.12)
+	water_tint.color = Color(0.08, 0.48, 0.66, 0.08)
 	water_tint.anchor_left = 0.0
 	water_tint.anchor_right = 1.0
 	water_tint.anchor_top = WATER_SURFACE_TOP
 	water_tint.anchor_bottom = 1.0
 	background_layer.add_child(water_tint)
 
-	for index in range(9):
+	for index in range(12):
 		var line := Line2D.new()
-		line.width = 2.0 if index % 3 == 0 else 1.0
-		line.default_color = Color(0.78, 0.88, 0.84, 0.22 if index % 2 == 0 else 0.14)
-		var y := viewport_size.y * (WATER_SURFACE_TOP + 0.025 + float(index) * 0.038)
-		var x_offset := fmod(time * (18.0 + index * 2.5) + index * 43.0, 96.0) - 96.0
-		for point_index in range(9):
-			var x := x_offset + point_index * (viewport_size.x / 7.0)
-			var wave := sin(time * 2.4 + point_index * 0.9 + index) * (2.0 + index * 0.15)
+		line.width = 2.0 if index % 4 == 0 else 1.0
+		line.default_color = Color(0.78, 0.93, 1.0, 0.18 if index % 2 == 0 else 0.10)
+		var y := viewport_size.y * (WATER_SURFACE_TOP + 0.026 + float(index) * 0.035)
+		var x_offset := fmod(time * (15.0 + index * 2.0) + index * 47.0, 112.0) - 112.0
+		for point_index in range(10):
+			var x := x_offset + point_index * (viewport_size.x / 8.0)
+			var wave := sin(time * 2.1 + point_index * 0.85 + index) * (1.8 + index * 0.12)
 			line.add_point(Vector2(x, y + wave))
 		background_layer.add_child(line)
+
+	for index in range(7):
+		var glint := ColorRect.new()
+		glint.color = Color(1.0, 0.96, 0.78, 0.22 if index % 2 == 0 else 0.14)
+		glint.anchor_left = 0.0
+		glint.anchor_right = 0.0
+		glint.anchor_top = 0.0
+		glint.anchor_bottom = 0.0
+		var center_x := viewport_size.x * (0.50 + sin(time * 0.85 + index * 1.6) * 0.055)
+		var center_y := viewport_size.y * (WATER_SURFACE_TOP + 0.08 + float(index) * 0.055)
+		var width := 34.0 + sin(time * 2.0 + index) * 12.0
+		glint.offset_left = center_x - width * 0.5
+		glint.offset_right = center_x + width * 0.5
+		glint.offset_top = center_y
+		glint.offset_bottom = center_y + 3.0
+		background_layer.add_child(glint)
 
 
 func _draw_restaurant_background() -> void:
@@ -2038,8 +2007,8 @@ func _restaurant_is_upgraded() -> bool:
 
 func _restaurant_cook_anchor() -> Vector2:
 	if _restaurant_is_upgraded():
-		return Vector2(0.18, 0.69)
-	return Vector2(0.23, 0.66)
+		return Vector2(0.27, 0.69)
+	return Vector2(0.33, 0.66)
 
 
 func _restaurant_table_positions() -> Array:
@@ -2079,7 +2048,7 @@ func _draw_seated_customers() -> void:
 		if customer["state"] == "waiting_to_arrive":
 			continue
 		var base_position: Vector2 = positions[seated_index % positions.size()]
-		var offset: Vector2 = Vector2(0.018 * float(seated_index / positions.size()), 0.0)
+		var offset: Vector2 = Vector2(0.018 * (float(seated_index) / float(positions.size())), 0.0)
 		var customer_position: Vector2 = base_position + offset
 		var customer_id: int = int(customer["id"])
 		_add_texture(_client_placeholder_texture(customer_id), customer_position, Vector2(0.42, 0.62), 1.0)
@@ -2129,21 +2098,20 @@ func _add_day_summary_sheet() -> void:
 	ui_layer.add_child(sheet)
 
 	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 8)
+	content.add_theme_constant_override("separation", 6)
 	sheet.add_child(content)
 
-	var title := _summary_text("Resumen del dia", 25, true)
+	var title := _summary_text("Resumen del dia", 23, true)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	content.add_child(title)
 
-	content.add_child(_summary_rule())
+	content.add_child(_summary_money_banner("Caja actual", "$%s" % save["coins"]))
 	content.add_child(_summary_line("Ventas", "%s monedas" % day["summary"]["revenue"]))
 	content.add_child(_summary_line("Clientes", "%s atendidos" % day["summary"]["served"]))
 	content.add_child(_summary_line("Animo", "%s felices / %s neutras / %s molestas" % [day["summary"]["happy"], day["summary"]["neutral"], day["summary"]["unhappy"]]))
 	content.add_child(_summary_line("Pesca", "%s perfectas / %s buenas / %s fallidas" % [day["summary"]["perfect_catches"], day["summary"]["good_catches"], day["summary"]["failed_catches"]]))
-	content.add_child(_summary_line("Ganancia", "$%s en caja" % save["coins"]))
 	content.add_child(_summary_line("Estrellas", "%s / 5" % save["stars"]))
-	content.add_child(_summary_line("Puesto", "Mejora %s: %s" % [save["upgrade_level"], _upgrade_effect_summary()]))
+	content.add_child(_summary_upgrade_card("Mejora %s" % save["upgrade_level"], _upgrade_effect_summary()))
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -2157,31 +2125,76 @@ func _add_day_summary_sheet() -> void:
 
 	var controls := _button_row()
 	var upgrade_cost := _get_upgrade_cost()
-	controls.add_child(_button("Mejorar (%s)" % upgrade_cost, Callable(self, "_upgrade_restaurant"), save["coins"] < upgrade_cost))
+	controls.add_child(_button("Mejorar (%s)" % upgrade_cost, Callable(self, "_upgrade_restaurant"), save["coins"] < upgrade_cost, "upgrade"))
 	controls.add_child(_button("Siguiente dia", Callable(self, "_start_next_day"), false, "secondary"))
 	content.add_child(controls)
 
 
 func _summary_line(label_text: String, value_text: String) -> HBoxContainer:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	row.custom_minimum_size = Vector2(0, 34)
+	row.add_theme_constant_override("separation", 10)
+	row.custom_minimum_size = Vector2(0, 31)
 
-	var label := _summary_text(label_text, 15, true)
-	label.custom_minimum_size = Vector2(112, 0)
+	var label := _summary_text(label_text, 14, true)
+	label.custom_minimum_size = Vector2(104, 0)
 	label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	label.clip_text = true
 	row.add_child(label)
 
-	var value := _summary_text(value_text, 15, false)
+	var value := _summary_text(value_text, 14, false)
 	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	row.add_child(value)
 	return row
 
 
-func _summary_text(text: String, size: int, bold := false) -> Label:
-	var label := _label(text, size, Color("#533219"), bold)
+func _summary_money_banner(label_text: String, value_text: String) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override("panel", _summary_money_style())
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	panel.add_child(row)
+
+	var label := _label(label_text, 14, Color("#e9f7ef"), true)
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(label)
+
+	var value := _label(value_text, 22, Color("#ffe08a"), true)
+	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	value.custom_minimum_size = Vector2(126, 0)
+	value.autowrap_mode = TextServer.AUTOWRAP_OFF
+	value.clip_text = true
+	row.add_child(value)
+	return panel
+
+
+func _summary_upgrade_card(label_text: String, value_text: String) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override("panel", _summary_upgrade_style())
+
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 2)
+	panel.add_child(content)
+
+	var label := _summary_text(label_text, 13, true)
+	label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	label.clip_text = true
+	content.add_child(label)
+
+	var value := _summary_text(value_text, 13, false)
+	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	content.add_child(value)
+	return panel
+
+
+func _summary_text(text: String, font_size: int, bold := false) -> Label:
+	var label := _label(text, font_size, Color("#533219"), bold)
 	label.add_theme_color_override("font_shadow_color", Color(1.0, 0.88, 0.56, 0.35))
 	label.add_theme_constant_override("shadow_offset_x", 1)
 	label.add_theme_constant_override("shadow_offset_y", 1)
@@ -2199,39 +2212,6 @@ func _draw_restaurant_status() -> void:
 	if _has_visible_restaurant_customers():
 		return
 	_draw_waiting_customer_hint()
-	return
-
-	var overlay := HBoxContainer.new()
-	overlay.anchor_left = 0.28
-	overlay.anchor_right = 0.96
-	overlay.anchor_top = 0.31
-	overlay.anchor_bottom = 0.49
-	overlay.alignment = BoxContainer.ALIGNMENT_CENTER
-	overlay.add_theme_constant_override("separation", 12)
-	background_layer.add_child(overlay)
-
-	var visible_count := 0
-	var now: float = Time.get_ticks_msec() / 1000.0
-	for customer_item in restaurant.get("customers", []):
-		var customer: Dictionary = customer_item as Dictionary
-		if customer["state"] == "waiting_to_arrive":
-			continue
-		visible_count += 1
-		var card := _status_card()
-		var card_content := card.get_node("Content") as VBoxContainer
-		var recipe: Dictionary = _get_recipe(customer["order_recipe_id"])
-		var face: String = "?" if not customer["served"] else _face_for(customer["satisfaction"])
-		card_content.add_child(_label("Cliente %s" % customer["id"], 12, Color("#08303b"), true))
-		card_content.add_child(_label(face, 20, Color("#1d1b1b"), true))
-		card_content.add_child(_label(recipe["short_name"], 13, Color("#08303b"), true))
-		if customer["state"] == "present":
-			card_content.add_child(_label("%ss" % max(0, ceili(customer["patience_seconds"] - (now - customer["arrived_at"]))), 12, Color("#9b5f37"), true))
-		overlay.add_child(card)
-
-	if visible_count == 0:
-		var waiting := _text_panel(_next_customer_label(), 16, Color("#e9f7ef"), true)
-		waiting.custom_minimum_size = Vector2(280, 70)
-		overlay.add_child(waiting)
 
 
 func _has_visible_restaurant_customers() -> bool:
@@ -2361,7 +2341,7 @@ func _add_full_texture(texture: Texture2D) -> void:
 	background_layer.add_child(rect)
 
 
-func _add_texture(texture: Texture2D, anchor: Vector2, scale: Vector2, alpha: float, rotation_degrees_value := 0.0) -> void:
+func _add_texture(texture: Texture2D, anchor: Vector2, texture_scale: Vector2, alpha: float, rotation_degrees_value := 0.0) -> void:
 	var rect := TextureRect.new()
 	rect.texture = texture
 	rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -2373,7 +2353,7 @@ func _add_texture(texture: Texture2D, anchor: Vector2, scale: Vector2, alpha: fl
 	rect.anchor_right = anchor.x
 	rect.anchor_top = anchor.y
 	rect.anchor_bottom = anchor.y
-	rect.custom_minimum_size = Vector2(160, 120) * scale
+	rect.custom_minimum_size = Vector2(160, 120) * texture_scale
 	rect.pivot_offset = rect.custom_minimum_size * 0.5
 	rect.offset_left = -rect.custom_minimum_size.x / 2.0
 	rect.offset_right = rect.custom_minimum_size.x / 2.0
@@ -2382,16 +2362,16 @@ func _add_texture(texture: Texture2D, anchor: Vector2, scale: Vector2, alpha: fl
 	background_layer.add_child(rect)
 
 
-func _add_sprite_frame(texture: Texture2D, frame: int, anchor: Vector2, scale: Vector2, alpha: float) -> void:
+func _add_sprite_frame(texture: Texture2D, frame: int, anchor: Vector2, texture_scale: Vector2, alpha: float) -> void:
 	var frame_size: Vector2 = Vector2(48, 48)
 	var atlas := AtlasTexture.new()
 	atlas.atlas = texture
 	atlas.region = Rect2(frame_size.x * frame, 0.0, frame_size.x, frame_size.y)
-	_add_texture(atlas, anchor, scale, alpha)
+	_add_texture(atlas, anchor, texture_scale, alpha)
 
 
-func _center_text(text: String, size: int, color: Color, anchor: Vector2) -> Label:
-	var label := _label(text, size, color, true)
+func _center_text(text: String, font_size: int, color: Color, anchor: Vector2) -> Label:
+	var label := _label(text, font_size, color, true)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.anchor_left = anchor.x
 	label.anchor_right = anchor.x
@@ -2620,7 +2600,10 @@ func _button(text: String, action: Callable, disabled := false, variant := "prim
 	button.add_theme_stylebox_override("normal", _button_style(variant, disabled))
 	button.add_theme_stylebox_override("hover", _button_style(variant, disabled, 1.08))
 	button.add_theme_stylebox_override("pressed", _button_style(variant, disabled, 0.92))
-	button.add_theme_color_override("font_color", Color("#1d1b1b") if variant == "primary" else Color("#e9f7ef"))
+	var font_color := Color("#1d1b1b") if variant == "primary" else Color("#e9f7ef")
+	if variant == "upgrade" and not disabled:
+		font_color = Color("#fff3bf")
+	button.add_theme_color_override("font_color", font_color)
 	button.add_theme_font_size_override("font_size", 15)
 	button.clip_text = true
 	button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -2688,12 +2671,12 @@ func _small_stat(label_text: String, value_text: String) -> HBoxContainer:
 	return row
 
 
-func _text_panel(text: String, size: int, color: Color, bold := false) -> PanelContainer:
+func _text_panel(text: String, font_size: int, color: Color, bold := false) -> PanelContainer:
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.add_theme_stylebox_override("panel", _chip_style())
 
-	var label := _label(text, size, color, bold)
+	var label := _label(text, font_size, color, bold)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2702,10 +2685,10 @@ func _text_panel(text: String, size: int, color: Color, bold := false) -> PanelC
 	return panel
 
 
-func _label(text: String, size: int, color: Color, bold := false) -> Label:
+func _label(text: String, font_size: int, color: Color, bold := false) -> Label:
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", size)
+	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
 	if bold:
 		label.add_theme_color_override("font_shadow_color", Color("#1d1b1b"))
@@ -2791,12 +2774,34 @@ func _day_menu_icon_slot_style(selected: bool) -> StyleBoxFlat:
 	return style
 
 
+func _summary_money_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("#153d2f")
+	style.border_color = Color("#f4d58d")
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	_set_style_margins(style, 8)
+	return style
+
+
+func _summary_upgrade_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(1.0, 0.91, 0.63, 0.42)
+	style.border_color = Color("#bf7a3c")
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(6)
+	_set_style_margins(style, 7)
+	return style
+
+
 func _button_style(variant: String, disabled: bool, multiplier := 1.0) -> StyleBoxFlat:
 	var color := Color("#f6c177")
 	if variant == "secondary":
 		color = Color("#227c8d")
 	elif variant == "danger":
 		color = Color("#d84a3a")
+	elif variant == "upgrade":
+		color = Color("#2f7f43")
 	if disabled:
 		color = color.darkened(0.45)
 	elif multiplier > 1.0:
