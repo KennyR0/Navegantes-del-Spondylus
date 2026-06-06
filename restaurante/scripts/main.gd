@@ -37,6 +37,8 @@ const FISH_PREMIUM_TEXTURE := preload("res://assets/pixelart/fish_premium_pixel.
 const LURE_TEXTURE := preload("res://assets/pixelart/lure_bobber.png")
 const LURE_SINK_TEXTURE := preload("res://assets/pixelart/lure_sink.png")
 const BITE_SPLASH_TEXTURE := preload("res://assets/pixelart/bite_splash.png")
+const MAIN_MENU_TEXTURE := preload("res://assets/pixelart/main_menu.png")
+const DAY_SUMMARY_TEXTURE := preload("res://assets/pixelart/day_summary.png")
 const PROTAGONIST_FISHER_TEXTURE := preload("res://assets/protagonist/pescador_front.png")
 const PROTAGONIST_COOK_TEXTURE := preload("res://assets/protagonist/cocinero_front.png")
 const FISHER_IDLE_1_TEXTURE := preload("res://assets/protagonist/frames/fisher_idle_1.png")
@@ -553,6 +555,14 @@ func _show_menu() -> void:
 	mode = "menu"
 	_reset_screen()
 	_draw_menu_background()
+
+	_add_menu_hotspot(Vector2(0.05, 0.565), Vector2(0.37, 0.635), Callable(self, "_start_fresh_run"))
+	_add_menu_hotspot(Vector2(0.05, 0.650), Vector2(0.37, 0.720), Callable(self, "_continue_saved_run"), not _has_saved_run())
+	_add_menu_hotspot(Vector2(0.05, 0.775), Vector2(0.37, 0.850), Callable(self, "_quit_game"))
+
+	if message != "":
+		_add_menu_notice(message)
+	return
 
 	var panel := _bottom_panel()
 	var title := _label("La Pochita Stone", 34, Color("#f6c177"), true)
@@ -1261,6 +1271,9 @@ func _show_summary() -> void:
 	_finalize_day()
 	_reset_screen()
 	_draw_summary_background()
+	_add_day_summary_sheet()
+	return
+
 	_add_top_bar([
 		"$%s" % save["coins"],
 		"* %s" % save["stars"],
@@ -1550,9 +1563,42 @@ func _customer_summary_v2() -> String:
 
 
 func _draw_menu_background() -> void:
-	_add_color_bg(Color("#0f4c5c"))
-	_add_texture(WATER_TEXTURE, Vector2(0.5, 0.78), Vector2(3.5, 1.1), 0.45)
-	_add_texture(HUT_TEXTURE, Vector2(0.5, 0.62), Vector2(4.0, 4.0), 0.95)
+	_add_full_texture(MAIN_MENU_TEXTURE)
+
+
+func _add_menu_hotspot(top_left: Vector2, bottom_right: Vector2, action: Callable, disabled := false) -> void:
+	var button := Button.new()
+	button.flat = true
+	button.disabled = disabled
+	button.focus_mode = Control.FOCUS_NONE
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.anchor_left = top_left.x
+	button.anchor_right = bottom_right.x
+	button.anchor_top = top_left.y
+	button.anchor_bottom = bottom_right.y
+	button.add_theme_stylebox_override("normal", _menu_hotspot_style(Color(1, 1, 1, 0.0)))
+	button.add_theme_stylebox_override("hover", _menu_hotspot_style(Color(1.0, 0.88, 0.48, 0.16)))
+	button.add_theme_stylebox_override("pressed", _menu_hotspot_style(Color(0.20, 0.08, 0.03, 0.20)))
+	button.add_theme_stylebox_override("disabled", _menu_hotspot_style(Color(0, 0, 0, 0.0)))
+	button.pressed.connect(action)
+	ui_layer.add_child(button)
+
+
+func _add_menu_notice(text: String) -> void:
+	var container := CenterContainer.new()
+	container.anchor_left = 0.08
+	container.anchor_right = 0.92
+	container.anchor_top = 0.49
+	container.anchor_bottom = 0.55
+	ui_layer.add_child(container)
+
+	var notice := _text_panel(text, 14, Color("#e9f7ef"), true)
+	notice.custom_minimum_size = Vector2(0, 42)
+	container.add_child(notice)
+
+
+func _quit_game() -> void:
+	get_tree().quit()
 
 
 func _draw_fishing_background() -> void:
@@ -1838,10 +1884,86 @@ func _add_customer_table_label(customer: Dictionary, anchor: Vector2, now: float
 
 
 func _draw_summary_background() -> void:
-	_add_color_bg(Color("#08303b"))
-	_add_texture(HUT_TEXTURE, Vector2(0.5, 0.55), Vector2(4.0, 4.0), 0.8)
-	var title := _center_text("Cierre de La Pochita", 32, Color("#f6c177"), Vector2(0.5, 0.14))
-	background_layer.add_child(title)
+	_add_full_texture(DAY_SUMMARY_TEXTURE)
+
+
+func _add_day_summary_sheet() -> void:
+	var sheet := MarginContainer.new()
+	sheet.anchor_left = 0.12
+	sheet.anchor_right = 0.88
+	sheet.anchor_top = 0.435
+	sheet.anchor_bottom = 0.845
+	sheet.add_theme_constant_override("margin_left", 10)
+	sheet.add_theme_constant_override("margin_right", 10)
+	sheet.add_theme_constant_override("margin_top", 8)
+	sheet.add_theme_constant_override("margin_bottom", 8)
+	ui_layer.add_child(sheet)
+
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 8)
+	sheet.add_child(content)
+
+	var title := _summary_text("Resumen del dia", 25, true)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(title)
+
+	content.add_child(_summary_rule())
+	content.add_child(_summary_line("Ventas", "%s monedas" % day["summary"]["revenue"]))
+	content.add_child(_summary_line("Clientes", "%s atendidos" % day["summary"]["served"]))
+	content.add_child(_summary_line("Animo", "%s felices / %s neutras / %s molestas" % [day["summary"]["happy"], day["summary"]["neutral"], day["summary"]["unhappy"]]))
+	content.add_child(_summary_line("Pesca", "%s perfectas / %s buenas / %s fallidas" % [day["summary"]["perfect_catches"], day["summary"]["good_catches"], day["summary"]["failed_catches"]]))
+	content.add_child(_summary_line("Ganancia", "$%s en caja" % save["coins"]))
+	content.add_child(_summary_line("Estrellas", "%s / 5" % save["stars"]))
+	content.add_child(_summary_line("Puesto", "Mejora %s: %s" % [save["upgrade_level"], _upgrade_effect_summary()]))
+
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.add_child(spacer)
+
+	if message != "":
+		var note := _summary_text(message, 14, false)
+		note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		content.add_child(note)
+
+	var controls := _button_row()
+	var upgrade_cost := _get_upgrade_cost()
+	controls.add_child(_button("Mejorar (%s)" % upgrade_cost, Callable(self, "_upgrade_restaurant"), save["coins"] < upgrade_cost))
+	controls.add_child(_button("Siguiente dia", Callable(self, "_start_next_day"), false, "secondary"))
+	content.add_child(controls)
+
+
+func _summary_line(label_text: String, value_text: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size = Vector2(0, 34)
+
+	var label := _summary_text(label_text, 15, true)
+	label.custom_minimum_size = Vector2(112, 0)
+	label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	label.clip_text = true
+	row.add_child(label)
+
+	var value := _summary_text(value_text, 15, false)
+	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	row.add_child(value)
+	return row
+
+
+func _summary_text(text: String, size: int, bold := false) -> Label:
+	var label := _label(text, size, Color("#533219"), bold)
+	label.add_theme_color_override("font_shadow_color", Color(1.0, 0.88, 0.56, 0.35))
+	label.add_theme_constant_override("shadow_offset_x", 1)
+	label.add_theme_constant_override("shadow_offset_y", 1)
+	return label
+
+
+func _summary_rule() -> ColorRect:
+	var rule := ColorRect.new()
+	rule.color = Color("#bf7a3c")
+	rule.custom_minimum_size = Vector2(0, 2)
+	return rule
 
 
 func _draw_restaurant_status() -> void:
@@ -2378,6 +2500,15 @@ func _button_style(variant: String, disabled: bool, multiplier := 1.0) -> StyleB
 	style.bg_color = color
 	style.set_corner_radius_all(8)
 	_set_style_margins(style, 8)
+	return style
+
+
+func _menu_hotspot_style(color: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = color
+	style.border_color = Color(1.0, 0.92, 0.62, color.a * 0.85)
+	style.set_border_width_all(2 if color.a > 0.0 else 0)
+	style.set_corner_radius_all(8)
 	return style
 
 
