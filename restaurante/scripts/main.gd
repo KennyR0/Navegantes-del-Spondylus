@@ -131,7 +131,6 @@ var selected_day_menu: Array = []
 var last_catch_result := ""
 var last_catch_started_at := -10.0
 var tutorial_step := 0
-var tutorial_started_from_menu := false
 var rent_boat_animation_overlay: Control
 var menu_animation_time := 0.0
 var menu_birds: Array = []
@@ -479,13 +478,9 @@ func _start_fresh_run() -> void:
 	selected_day_menu = []
 	fishing_phase = "idle"
 	tutorial_step = 0
-	tutorial_started_from_menu = false
 	message = "Renta un bote para salir antes de que suba la marea."
 	summary_finalized = false
-	if _should_show_first_day_tutorial():
-		_show_tutorial(0)
-	else:
-		_show_fishing()
+	_show_tutorial(0)
 	_persist_save()
 
 
@@ -495,7 +490,6 @@ func _start_next_day() -> void:
 	selected_day_menu = []
 	fishing_phase = "idle"
 	tutorial_step = 0
-	tutorial_started_from_menu = false
 	message = "Renta un bote para salir antes de que suba la marea."
 	summary_finalized = false
 	_show_fishing()
@@ -504,13 +498,6 @@ func _start_next_day() -> void:
 
 func _should_show_first_day_tutorial() -> bool:
 	return not bool(save.get("tutorial_seen", false))
-
-
-func _show_menu_tutorial() -> void:
-	tutorial_started_from_menu = true
-	tutorial_step = 0
-	message = ""
-	_show_tutorial(0)
 
 
 func _show_tutorial(step := 0) -> void:
@@ -533,16 +520,12 @@ func _show_tutorial(step := 0) -> void:
 	panel.add_child(_tutorial_hint_panel())
 
 	var controls := _button_row()
-	var next_label := _tutorial_finish_label() if tutorial_step >= TUTORIAL_STEPS.size() - 1 else "Siguiente"
+	var next_label := "Empezar a pescar" if tutorial_step >= TUTORIAL_STEPS.size() - 1 else "Siguiente"
 	controls.add_child(_button(next_label, Callable(self, "_advance_tutorial")))
 	controls.add_child(_button("Saltar", Callable(self, "_skip_tutorial"), false, "secondary"))
 	panel.add_child(controls)
-	if not tutorial_started_from_menu and not day.is_empty():
+	if not day.is_empty():
 		_persist_save()
-
-
-func _tutorial_finish_label() -> String:
-	return "Volver al menú" if tutorial_started_from_menu or day.is_empty() else "Empezar a pescar"
 
 
 func _tutorial_hint_panel() -> PanelContainer:
@@ -568,12 +551,6 @@ func _skip_tutorial() -> void:
 func _finish_tutorial() -> void:
 	save["tutorial_seen"] = true
 	tutorial_step = TUTORIAL_STEPS.size() - 1
-	if tutorial_started_from_menu or day.is_empty():
-		tutorial_started_from_menu = false
-		message = ""
-		_show_menu()
-		_write_save_file()
-		return
 	message = "Renta un bote, mira el señuelo y jala solo cuando se hunda."
 	_show_fishing()
 	_persist_save()
@@ -582,36 +559,15 @@ func _finish_tutorial() -> void:
 func _show_menu() -> void:
 	mode = "menu"
 	menu_animation_time = 0.0
-	tutorial_started_from_menu = false
 	_reset_screen()
 	_draw_menu_background()
 
 	_add_menu_hotspot(Vector2(0.05, 0.565), Vector2(0.37, 0.635), Callable(self, "_start_fresh_run"))
 	_add_menu_hotspot(Vector2(0.05, 0.650), Vector2(0.37, 0.720), Callable(self, "_continue_saved_run"), not _has_saved_run())
-	_add_menu_hotspot(Vector2(0.05, 0.725), Vector2(0.37, 0.775), Callable(self, "_show_menu_tutorial"))
 	_add_menu_hotspot(Vector2(0.05, 0.775), Vector2(0.37, 0.850), Callable(self, "_quit_game"))
 
 	if message != "":
 		_add_menu_notice(message)
-
-	var panel := _bottom_panel()
-	var title := _label("La Pochita Stone", 34, Color("#f6c177"), true)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	panel.add_child(title)
-
-	var copy := _label("Un restaurante heredado en el puerto de Manta. Pesca al amanecer, cocina con lo que consigas y demuestra que el nuevo también puede levantar el puesto.", 18, Color("#e9f7ef"))
-	copy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	panel.add_child(copy)
-
-	var controls := _button_row()
-	controls.add_child(_button("Nuevo día", Callable(self, "_start_fresh_run")))
-	controls.add_child(_button("Continuar", Callable(self, "_continue_saved_run"), not _has_saved_run(), "secondary"))
-	panel.add_child(controls)
-
-	var secondary_controls := _button_row()
-	secondary_controls.add_child(_button("Tutorial", Callable(self, "_show_menu_tutorial"), false, "secondary"))
-	secondary_controls.add_child(_button("Salir", Callable(self, "_quit_game"), false, "secondary"))
-	panel.add_child(secondary_controls)
 
 
 func _show_fishing() -> void:
