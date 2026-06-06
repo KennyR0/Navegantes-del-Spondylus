@@ -20,7 +20,7 @@ const CUSTOMER_PATIENCE_SECONDS := 22.0
 const RENT_BOAT_ANIMATION_PATH := "res://assets/animations/animacion_renta_banco.ogv"
 const RENT_BOAT_ANIMATION_FALLBACK_SECONDS := 2.4
 const RENT_BOAT_ANIMATION_SAFETY_SECONDS := 8.0
-const WATER_SURFACE_TOP := 0.54
+const WATER_SURFACE_TOP := 0.60
 const BOAT_ANCHOR := Vector2(0.46, 0.72)
 const FISHERMAN_ANCHOR := Vector2(0.455, 0.682)
 const FISHERMAN_SCALE := Vector2(1.18, 1.57)
@@ -1959,40 +1959,74 @@ func _draw_animated_water() -> void:
 	var viewport_size := get_viewport_rect().size
 	var time := _now_seconds()
 	var water_tint := ColorRect.new()
-	water_tint.color = Color(0.08, 0.48, 0.66, 0.08)
+	water_tint.color = Color(0.03, 0.36, 0.56, 0.16)
 	water_tint.anchor_left = 0.0
 	water_tint.anchor_right = 1.0
 	water_tint.anchor_top = WATER_SURFACE_TOP
 	water_tint.anchor_bottom = 1.0
 	background_layer.add_child(water_tint)
 
-	for index in range(12):
+	for index in range(18):
 		var line := Line2D.new()
-		line.width = 2.0 if index % 4 == 0 else 1.0
-		line.default_color = Color(0.78, 0.93, 1.0, 0.18 if index % 2 == 0 else 0.10)
-		var y := viewport_size.y * (WATER_SURFACE_TOP + 0.026 + float(index) * 0.035)
-		var x_offset := fmod(time * (15.0 + index * 2.0) + index * 47.0, 112.0) - 112.0
-		for point_index in range(10):
-			var x := x_offset + point_index * (viewport_size.x / 8.0)
-			var wave := sin(time * 2.1 + point_index * 0.85 + index) * (1.8 + index * 0.12)
+		line.width = 3.0 if index % 4 == 0 else 2.0
+		line.default_color = Color(0.68, 0.94, 1.0, 0.42 if index % 2 == 0 else 0.25)
+		var depth_ratio := float(index) / 17.0
+		var y := viewport_size.y * (WATER_SURFACE_TOP + 0.018 + depth_ratio * 0.42)
+		var segment_width := viewport_size.x / 6.0
+		var x_offset := fmod(time * (34.0 + index * 3.4) + index * 47.0, segment_width * 2.0) - segment_width * 2.0
+		for point_index in range(12):
+			var x := x_offset + point_index * segment_width
+			var wave := sin(time * (3.6 + depth_ratio * 1.8) + point_index * 0.95 + index) * (3.0 + depth_ratio * 5.5)
 			line.add_point(Vector2(x, y + wave))
 		background_layer.add_child(line)
 
-	for index in range(7):
+	for index in range(14):
 		var glint := ColorRect.new()
-		glint.color = Color(1.0, 0.96, 0.78, 0.22 if index % 2 == 0 else 0.14)
+		var pulse := 0.5 + sin(time * 4.8 + index * 1.7) * 0.5
+		glint.color = Color(1.0, 0.96, 0.72, (0.22 + pulse * 0.34) if index % 2 == 0 else (0.13 + pulse * 0.24))
 		glint.anchor_left = 0.0
 		glint.anchor_right = 0.0
 		glint.anchor_top = 0.0
 		glint.anchor_bottom = 0.0
-		var center_x := viewport_size.x * (0.50 + sin(time * 0.85 + index * 1.6) * 0.055)
-		var center_y := viewport_size.y * (WATER_SURFACE_TOP + 0.08 + float(index) * 0.055)
-		var width := 34.0 + sin(time * 2.0 + index) * 12.0
+		var drift := fmod(time * (48.0 + index * 5.5) + index * 73.0, viewport_size.x + 180.0) - 90.0
+		var center_x := drift
+		var center_y := viewport_size.y * (WATER_SURFACE_TOP + 0.045 + float(index % 7) * 0.058)
+		var width := 34.0 + pulse * 58.0
 		glint.offset_left = center_x - width * 0.5
 		glint.offset_right = center_x + width * 0.5
 		glint.offset_top = center_y
-		glint.offset_bottom = center_y + 3.0
+		glint.offset_bottom = center_y + (2.0 if index % 3 == 0 else 1.0)
 		background_layer.add_child(glint)
+
+	var boat_center := BOAT_ANCHOR * viewport_size
+	for index in range(7):
+		var wake := Line2D.new()
+		wake.width = 3.0 if index < 2 else 2.0
+		wake.default_color = Color(0.88, 0.98, 1.0, 0.42 - float(index) * 0.035)
+		var side := -1.0 if index % 2 == 0 else 1.0
+		var start := boat_center + Vector2(side * (42.0 + index * 7.0), 8.0 + index * 5.0)
+		for point_index in range(6):
+			var x := side * (point_index * 20.0 + sin(time * 5.5 + index + point_index) * 5.0)
+			var y := sin(time * 5.0 + point_index * 1.4 + index) * 4.0 + point_index * 2.0
+			wake.add_point(start + Vector2(x, y))
+		background_layer.add_child(wake)
+
+	for index in range(8):
+		var sparkle := ColorRect.new()
+		var flash := 0.5 + sin(time * 6.5 + index * 2.1) * 0.5
+		sparkle.color = Color(1.0, 1.0, 0.88, 0.24 + flash * 0.48)
+		sparkle.anchor_left = 0.0
+		sparkle.anchor_right = 0.0
+		sparkle.anchor_top = 0.0
+		sparkle.anchor_bottom = 0.0
+		var sparkle_x := fmod(time * (58.0 + index * 8.0) + index * 91.0, viewport_size.x + 80.0) - 40.0
+		var sparkle_y := viewport_size.y * (WATER_SURFACE_TOP + 0.08 + float(index % 5) * 0.075)
+		var sparkle_size := 3.0 + flash * 4.0
+		sparkle.offset_left = sparkle_x - sparkle_size * 0.5
+		sparkle.offset_right = sparkle_x + sparkle_size * 0.5
+		sparkle.offset_top = sparkle_y - sparkle_size * 0.5
+		sparkle.offset_bottom = sparkle_y + sparkle_size * 0.5
+		background_layer.add_child(sparkle)
 
 
 func _draw_restaurant_background() -> void:
