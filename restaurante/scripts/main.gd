@@ -18,6 +18,7 @@ const FISHING_REDRAW_SECONDS := 0.08
 const SAVE_SYNC_SECONDS := 1.0
 const CUSTOMER_PATIENCE_SECONDS := 22.0
 const RENT_BOAT_ANIMATION_PATH := "res://assets/animations/animacion_renta_banco.ogv"
+const INTRO_TRANSITION_SECONDS := 0.35
 const MENU_MUSIC_STREAM := preload("res://assets/audio/menu_principal.mp3")
 const RESTAURANT_MUSIC_STREAM := preload("res://assets/audio/restauranteloopST.mp3")
 const FISHING_MUSIC_STREAM := preload("res://assets/audio/pescaST.mp3")
@@ -59,6 +60,8 @@ const LURE_SINK_TEXTURE := preload("res://assets/pixelart/lure_sink.png")
 const BITE_SPLASH_TEXTURE := preload("res://assets/pixelart/bite_splash.png")
 const MAIN_MENU_TEXTURE := preload("res://assets/pixelart/main_menu.png")
 const DAY_SUMMARY_TEXTURE := preload("res://assets/pixelart/day_summary.png")
+const INTRO_PORT_TEXTURE := preload("res://assets/intro/intro_puerto_intruso.png")
+const INTRO_RESTAURANT_TEXTURE := preload("res://assets/intro/intro_restaurante_pochita.png")
 const PROTAGONIST_FISHER_TEXTURE := preload("res://assets/protagonist/pescador_front.png")
 const PROTAGONIST_COOK_TEXTURE := preload("res://assets/protagonist/cocinero_front.png")
 const FISHER_IDLE_1_TEXTURE := preload("res://assets/protagonist/frames/fisher_idle_1.png")
@@ -95,6 +98,24 @@ const FIRST_CUSTOMER_DELAY_SECONDS := 1.4
 const MIN_CUSTOMER_ARRIVAL_GAP_SECONDS := 5.0
 const MAX_CUSTOMER_ARRIVAL_GAP_SECONDS := 8.0
 const CATCH_REACTION_SECONDS := 1.15
+const INTRO_FRAMES := [
+	{
+		"texture": INTRO_PORT_TEXTURE,
+		"text": "En el puerto de Manta, los pescadores no reciben bien a los nuevos."
+	},
+	{
+		"texture": INTRO_PORT_TEXTURE,
+		"text": "Desde que llegó, todos lo tratan como un intruso. Le venden el pescado carísimo solo para verlo fracasar."
+	},
+	{
+		"texture": INTRO_RESTAURANT_TEXTURE,
+		"text": "Pero él no piensa agachar la cabeza."
+	},
+	{
+		"texture": INTRO_RESTAURANT_TEXTURE,
+		"text": "Con el viejo restaurante que heredó, decide empezar desde abajo y levantar La Pochita Stone con sus propias manos."
+	}
+]
 const TUTORIAL_STEPS := [
 	{
 		"title": "Pesca: espera la mordida real",
@@ -156,6 +177,8 @@ var selected_day_menu: Array = []
 var last_catch_result := ""
 var last_catch_started_at := -10.0
 var tutorial_step := 0
+var intro_index := 0
+var intro_click_locked := false
 var rent_boat_animation_overlay: Control
 var menu_animation_time := 0.0
 var menu_birds: Array = []
@@ -273,7 +296,7 @@ func _process(delta: float) -> void:
 
 
 func _tick_save_sync(delta: float) -> void:
-	if day.is_empty() or mode == "menu" or mode == "settings":
+	if day.is_empty() or mode == "menu" or mode == "settings" or mode == "intro":
 		return
 	save_sync_elapsed += delta
 	if save_sync_elapsed >= SAVE_SYNC_SECONDS:
@@ -714,6 +737,130 @@ func _start_fresh_run() -> void:
 	_persist_save()
 
 
+func _start_intro() -> void:
+	mode = "intro"
+	intro_index = 0
+	intro_click_locked = false
+	message = ""
+	_show_intro_frame()
+
+
+func _show_intro_frame(previous_texture: Texture2D = null) -> void:
+	mode = "intro"
+	_reset_screen()
+
+	var frame: Dictionary = INTRO_FRAMES[intro_index] as Dictionary
+	var current_texture: Texture2D = frame["texture"] as Texture2D
+	_add_full_texture(current_texture)
+	if previous_texture != null and previous_texture != current_texture:
+		var fade_out := _add_intro_texture(previous_texture)
+		fade_out.modulate.a = 1.0
+		var transition := create_tween().bind_node(fade_out)
+		transition.tween_property(fade_out, "modulate:a", 0.0, INTRO_TRANSITION_SECONDS).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		transition.finished.connect(func():
+			if is_instance_valid(fade_out):
+				fade_out.queue_free()
+			intro_click_locked = false
+		)
+
+	_add_intro_text(str(frame["text"]))
+	_add_intro_advance_hint()
+	_add_intro_click_area()
+
+
+func _advance_intro_frame() -> void:
+	if mode != "intro" or intro_click_locked:
+		return
+	if intro_index >= INTRO_FRAMES.size() - 1:
+		_start_fresh_run()
+		return
+
+	var previous_frame: Dictionary = INTRO_FRAMES[intro_index] as Dictionary
+	var previous_texture: Texture2D = previous_frame["texture"] as Texture2D
+	intro_index += 1
+	var next_frame: Dictionary = INTRO_FRAMES[intro_index] as Dictionary
+	var next_texture: Texture2D = next_frame["texture"] as Texture2D
+	intro_click_locked = previous_texture != next_texture
+	_show_intro_frame(previous_texture if previous_texture != next_texture else null)
+
+
+func _add_intro_text(text: String) -> void:
+	var box := Control.new()
+	box.anchor_left = 0.085
+	box.anchor_right = 0.915
+	box.anchor_top = 0.742
+	box.anchor_bottom = 0.900
+	ui_layer.add_child(box)
+
+	var label := _label(text, _intro_font_size(), Color("#533219"), true)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	label.add_theme_color_override("font_shadow_color", Color(1.0, 0.93, 0.72, 0.35))
+	label.add_theme_constant_override("shadow_offset_x", 1)
+	label.add_theme_constant_override("shadow_offset_y", 1)
+	box.add_child(label)
+
+
+func _intro_font_size() -> int:
+	var viewport_width := get_viewport_rect().size.x
+	if viewport_width <= 560.0:
+		return 18
+	if viewport_width <= 760.0:
+		return 22
+	return 26
+
+
+func _add_intro_advance_hint() -> void:
+	var hint := Control.new()
+	hint.anchor_left = 0.690
+	hint.anchor_right = 0.895
+	hint.anchor_top = 0.872
+	hint.anchor_bottom = 0.920
+	ui_layer.add_child(hint)
+
+	var hint_content := Control.new()
+	hint_content.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hint.add_child(hint_content)
+
+	var label := _label("Siguiente", 16, Color("#6b3a12"), true)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	label.anchor_left = 0.0
+	label.anchor_right = 0.72
+	label.anchor_top = 0.0
+	label.anchor_bottom = 1.0
+	hint_content.add_child(label)
+
+	var arrow := _label("v", 18, Color("#6b3a12"), true)
+	arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	arrow.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	arrow.anchor_left = 0.74
+	arrow.anchor_right = 1.0
+	arrow.anchor_top = 0.0
+	arrow.anchor_bottom = 1.0
+	hint_content.add_child(arrow)
+
+	var bob := create_tween().bind_node(hint_content).set_loops()
+	bob.tween_property(hint_content, "position:y", -8.0, 0.62).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	bob.tween_property(hint_content, "position:y", 2.0, 0.62).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func _add_intro_click_area() -> void:
+	var click_area := Button.new()
+	click_area.flat = true
+	click_area.focus_mode = Control.FOCUS_NONE
+	click_area.mouse_filter = Control.MOUSE_FILTER_STOP
+	click_area.set_anchors_preset(Control.PRESET_FULL_RECT)
+	click_area.add_theme_stylebox_override("normal", _menu_hotspot_style(Color(1, 1, 1, 0.0)))
+	click_area.add_theme_stylebox_override("hover", _menu_hotspot_style(Color(1, 1, 1, 0.0)))
+	click_area.add_theme_stylebox_override("pressed", _menu_hotspot_style(Color(0.18, 0.08, 0.03, 0.08)))
+	click_area.pressed.connect(_advance_intro_frame)
+	ui_layer.add_child(click_area)
+
+
 func _start_next_day() -> void:
 	var carried_inventory := _current_inventory_copy()
 	day = _create_new_day()
@@ -808,7 +955,11 @@ func _show_menu() -> void:
 	_reset_screen()
 	_draw_menu_background()
 
+<<<<<<< Updated upstream
 	_add_menu_hotspot(Vector2(0.05, 0.565), Vector2(0.37, 0.635), Callable(self, "_request_fresh_run"))
+=======
+	_add_menu_hotspot(Vector2(0.05, 0.565), Vector2(0.37, 0.635), Callable(self, "_start_intro"))
+>>>>>>> Stashed changes
 	_add_menu_hotspot(Vector2(0.05, 0.650), Vector2(0.37, 0.720), Callable(self, "_continue_saved_run"), not _has_saved_run())
 	_add_menu_hotspot(Vector2(0.05, 0.727), Vector2(0.37, 0.770), Callable(self, "_show_settings"))
 	_add_menu_hotspot(Vector2(0.05, 0.775), Vector2(0.37, 0.850), Callable(self, "_quit_game"))
@@ -3029,6 +3180,17 @@ func _add_full_texture(texture: Texture2D) -> void:
 	rect.stretch_mode = TextureRect.STRETCH_SCALE
 	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	background_layer.add_child(rect)
+
+
+func _add_intro_texture(texture: Texture2D) -> TextureRect:
+	var rect := TextureRect.new()
+	rect.texture = texture
+	rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	rect.stretch_mode = TextureRect.STRETCH_SCALE
+	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	background_layer.add_child(rect)
+	return rect
 
 
 func _add_texture(texture: Texture2D, anchor: Vector2, texture_scale: Vector2, alpha: float, rotation_degrees_value := 0.0) -> void:
